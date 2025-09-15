@@ -317,18 +317,42 @@ async def public_chat_endpoint(org_id: str, message: str = Form(...)):
         organization = organizations[org_id]
         
         if not organization["documents"]:
-            raise HTTPException(status_code=400, detail="No documents available for this organization")
+            # If no documents, provide a basic response
+            system_prompt = organization["prompt"]
+            ai_response = generate_ai_response(system_prompt, message, "No documents have been uploaded to this organization yet.")
+            
+            return {
+                "response": ai_response,
+                "organization": organization["name"],
+                "endpoint": f"/chat/{org_id}"
+            }
         
         # Collect all chunks from all documents
         all_chunks = []
         for doc in organization["documents"]:
-            doc_chunks = doc.get("chunks", [])
-            if not doc_chunks:  # Fallback for old documents without chunks
-                doc_chunks = chunk_text(doc["text_content"])
+            try:
+                doc_chunks = doc.get("chunks", [])
+                if not doc_chunks and "text_content" in doc:  # Fallback for old documents without chunks
+                    doc_chunks = chunk_text(doc["text_content"])
+                
+                # Add document context to each chunk
+                for chunk in doc_chunks:
+                    if chunk.strip():  # Only add non-empty chunks
+                        all_chunks.append(f"[From {doc['filename']}]\n{chunk}")
+            except Exception as e:
+                print(f"Error processing document {doc.get('filename', 'unknown')}: {str(e)}")
+                continue
+        
+        # If no valid chunks found, use a fallback message
+        if not all_chunks:
+            system_prompt = organization["prompt"]
+            ai_response = generate_ai_response(system_prompt, message, "The documents in this organization could not be processed properly.")
             
-            # Add document context to each chunk
-            for chunk in doc_chunks:
-                all_chunks.append(f"[From {doc['filename']}]\n{chunk}")
+            return {
+                "response": ai_response,
+                "organization": organization["name"],
+                "endpoint": f"/chat/{org_id}"
+            }
         
         # Find relevant chunks for the user's question
         relevant_chunks = find_relevant_chunks(all_chunks, message)
