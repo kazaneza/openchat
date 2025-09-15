@@ -165,7 +165,7 @@ Document Context:
 """
 
         response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4"),
+            model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
             messages=[
                 {"role": "system", "content": context_prompt},
                 {"role": "user", "content": user_message}
