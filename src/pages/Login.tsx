@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Building2, Lock, Eye, EyeOff } from 'lucide-react';
+import { MessageSquare, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { Organization } from '../types';
 import { organizationApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login: React.FC = () => {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [selectedOrgId, setSelectedOrgId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,8 +29,8 @@ const Login: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedOrgId) {
-      setError('Please select an organization');
+    if (!email || !password) {
+      setError('Please enter both email and password');
       return;
     }
 
@@ -40,13 +40,17 @@ const Login: React.FC = () => {
     try {
       // For demo purposes, we'll use a simple password check
       // In production, this should be handled by the backend
-      if (password === 'admin' || password === 'password') {
-        const selectedOrg = organizations.find(org => org.id === selectedOrgId);
-        if (selectedOrg) {
-          login(selectedOrg);
+      if ((email === 'admin@example.com' || email === 'user@example.com') && 
+          (password === 'admin' || password === 'password')) {
+        // For demo, just use the first available organization
+        const firstOrg = organizations[0];
+        if (firstOrg) {
+          login(firstOrg);
+        } else {
+          setError('No organizations available');
         }
       } else {
-        setError('Invalid password. Use "admin" or "password" for demo.');
+        setError('Invalid credentials. Use admin@example.com/admin or user@example.com/password for demo.');
       }
     } catch (error) {
       setError('Login failed. Please try again.');
@@ -88,22 +92,20 @@ const Login: React.FC = () => {
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Building2 className="w-4 h-4 inline mr-2" />
-                Select Organization
+                <Mail className="w-4 h-4 inline mr-2" />
+                Email Address
               </label>
-              <select
-                value={selectedOrgId}
-                onChange={(e) => setSelectedOrgId(e.target.value)}
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
+                placeholder="Enter your email address"
                 required
-              >
-                <option value="">Choose your organization...</option>
-                {organizations.map((org) => (
-                  <option key={org.id} value={org.id}>
-                    {org.name}
-                  </option>
-                ))}
-              </select>
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Demo: Use admin@example.com or user@example.com
+              </p>
             </div>
 
             <div>
@@ -149,13 +151,13 @@ const Login: React.FC = () => {
             </button>
           </form>
 
-          {organizations.length === 0 && (
-            <div className="text-center mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <p className="text-gray-600 dark:text-gray-300 text-sm">
-                No organizations found. Please contact your administrator.
-              </p>
-            </div>
-          )}
+          <div className="text-center mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <p className="text-gray-600 dark:text-gray-300 text-sm">
+              <strong>Demo Credentials:</strong><br />
+              Email: admin@example.com | Password: admin<br />
+              Email: user@example.com | Password: password
+            </p>
+          </div>
         </div>
       </div>
     </div>
