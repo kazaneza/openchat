@@ -1,7 +1,8 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Building2, MessageSquare, Upload, Settings, Moon, Sun } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { MessageSquare, Upload, Settings, Moon, Sun, LogOut, Zap } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -10,13 +11,21 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
+  const { currentOrganization, logout } = useAuth();
+  const navigate = useNavigate();
 
   const navigation = [
-    { name: 'Organizations', href: '/', icon: Building2 },
     { name: 'Chat', href: '/chat', icon: MessageSquare },
     { name: 'Upload', href: '/upload', icon: Upload },
+    { name: 'Integrators', href: '/integrators', icon: Zap },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
+
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300">
@@ -30,13 +39,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <MessageSquare className="w-5 h-5 text-white" />
               </div>
               <span className="text-xl font-bold bg-gradient-to-r from-deep-blue to-slate-gray dark:from-blue-400 dark:to-slate-300 bg-clip-text text-transparent">
-                PDF Chat
+                OpenChat
               </span>
-              <div className="ml-2 px-2 py-1 bg-gradient-to-r from-deep-blue to-slate-gray text-white text-xs rounded-full font-medium">
-                AI Powered
-              </div>
             </div>
           </div>
+
+          {/* Organization Info */}
+          {currentOrganization && (
+            <div className="px-4 mb-4">
+              <div className="bg-slate-50 dark:bg-gray-800 rounded-xl p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Current Organization</p>
+                <p className="font-semibold text-gray-900 dark:text-white text-sm">{currentOrganization.name}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{currentOrganization.document_count} documents</p>
+              </div>
+            </div>
+          )}
 
           {/* Theme Toggle */}
           <div className="px-4 mb-4">
@@ -71,6 +88,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               );
             })}
           </nav>
+
+          {/* Logout Button */}
+          <div className="px-4 pb-4">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 text-gray-600 dark:text-gray-300 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400"
+            >
+              <LogOut className="w-5 h-5 mr-3" />
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
 

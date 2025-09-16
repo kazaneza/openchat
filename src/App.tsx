@@ -1,24 +1,60 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { AuthProvider } from './contexts/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
+import Login from './pages/Login';
 import Chat from './pages/Chat';
 import Upload from './pages/Upload';
+import Integrators from './pages/Integrators';
+import OrganizationSettings from './pages/OrganizationSettings';
 
 function App() {
   return (
     <ThemeProvider>
-      <Router>
-        <Layout>
+      <AuthProvider>
+        <Router>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/chat" element={<Chat />} />
-            <Route path="/upload" element={<Upload />} />
-            <Route path="/settings" element={<div className="text-center py-16"><h2 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h2><p className="text-gray-600 dark:text-gray-300">Settings page coming soon...</p></div>} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={
+              <ProtectedRoute>
+                <Layout>
+                  <Chat />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/chat" element={
+              <ProtectedRoute>
+                <Layout>
+                  <Chat />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/upload" element={
+              <ProtectedRoute>
+                <Layout>
+                  <Upload />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/integrators" element={
+              <ProtectedRoute>
+                <Layout>
+                  <Integrators />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/settings" element={
+              <ProtectedRoute>
+                <Layout>
+                  <OrganizationSettings />
+                </Layout>
+              </ProtectedRoute>
+            } />
           </Routes>
-        </Layout>
-      </Router>
+        </Router>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

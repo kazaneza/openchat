@@ -1,15 +1,17 @@
-# PDF Chat System
+# OpenChat
 
-An AI-powered PDF chat system built with FastAPI and React that allows you to create organizations, upload PDF documents, and chat with them using OpenAI's GPT models.
+An AI-powered organization chat platform built with FastAPI and React that allows organizations to upload PDF documents, chat with them using OpenAI's GPT models, and integrate with multiple communication platforms.
 
 ## Features
 
-- 🏢 **Organization Management**: Create and manage multiple organizations
+🏢 **Organization Login**: Secure organization-based authentication system
 - 📄 **PDF Processing**: Upload and process multiple PDF documents
 - 🤖 **AI-Powered Chat**: Chat with your documents using OpenAI GPT-4
-- 🎨 **Beautiful UI**: Modern rose-themed interface with glass-morphism effects
+🎨 **Beautiful UI**: Modern dark/light themed interface with glass-morphism effects
 - 💾 **JSON Storage**: Simple file-based storage for organizations and metadata
 - 🔒 **Custom Prompts**: Configure custom system prompts for each organization
+🔗 **Multi-Platform Integration**: Connect to Teams, Facebook, Slack, WhatsApp, Instagram, and Twitter
+⚙️ **Organization Settings**: Manage chat endpoints and system prompts
 
 ## Setup
 
@@ -59,9 +61,11 @@ The frontend will be available at `http://localhost:5173`
 
 ## Usage
 
-1. **Create Organization**: Create a new organization with a custom system prompt
+1. **Organization Login**: Log in with your organization credentials (demo: use "admin" or "password")
 2. **Upload Documents**: Upload PDF documents to your organization
 3. **Start Chatting**: Ask questions about your documents and get AI-powered responses
+4. **Configure Integrators**: Connect to various platforms like Teams, Slack, WhatsApp, etc.
+5. **Manage Settings**: Configure your chat endpoint and system prompts
 
 ## API Endpoints
 
@@ -71,6 +75,7 @@ The frontend will be available at `http://localhost:5173`
 - `POST /api/organizations/{org_id}/upload` - Upload documents
 - `POST /api/organizations/{org_id}/chat` - Chat with documents
 - `DELETE /api/organizations/{org_id}` - Delete organization
+- `POST /chat/{org_id}` - Public chat endpoint for integrations
 
 ## Configuration
 
@@ -86,3 +91,21 @@ You can customize the AI behavior by modifying the environment variables:
 Organizations and metadata are stored in JSON files:
 - `data/organizations.json` - Organization data
 - `data/uploads/` - Uploaded PDF files
+
+## Organization Features
+
+Each organization has access to:
+- **Chat Interface**: AI-powered document chat
+- **Document Upload**: PDF document management
+- **Integrators**: Connect to external platforms
+- **Settings**: Manage endpoints and prompts
+
+## Integration Platforms
+
+OpenChat supports integration with:
+- Microsoft Teams
+- Facebook Messenger
+- Slack
+- WhatsApp Business
+- Instagram
+- Twitter/X

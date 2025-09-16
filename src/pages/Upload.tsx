@@ -1,28 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Upload as UploadIcon, FileText, X, Check } from 'lucide-react';
-import { Organization } from '../types';
 import { organizationApi } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const Upload: React.FC = () => {
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [selectedOrgId, setSelectedOrgId] = useState<string>('');
+  const { currentOrganization } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-
-  useEffect(() => {
-    loadOrganizations();
-  }, []);
-
-  const loadOrganizations = async () => {
-    try {
-      const data = await organizationApi.getAll();
-      setOrganizations(data);
-    } catch (error) {
-      console.error('Failed to load organizations:', error);
-    }
-  };
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -58,11 +44,11 @@ const Upload: React.FC = () => {
   };
 
   const handleUpload = async () => {
-    if (!selectedOrgId || files.length === 0) return;
+    if (!currentOrganization || files.length === 0) return;
 
     setUploading(true);
     try {
-      await organizationApi.uploadDocuments(selectedOrgId, files);
+      await organizationApi.uploadDocuments(currentOrganization.id, files);
       setUploadComplete(true);
       setFiles([]);
       setTimeout(() => setUploadComplete(false), 3000);
@@ -81,31 +67,24 @@ const Upload: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  if (!currentOrganization) {
+    return (
+      <div className="max-w-4xl mx-auto text-center py-16">
+        <div className="w-24 h-24 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+          <FileText className="w-12 h-12 text-deep-blue dark:text-blue-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No Organization Selected</h2>
+        <p className="text-gray-600 dark:text-gray-300">Please log in to upload documents.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Upload Documents</h1>
-        <p className="text-gray-600 dark:text-gray-300">Upload PDF documents to your organizations</p>
-      </div>
-
-      {/* Organization Selection */}
-      <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-gray-700 mb-6">
-        <label className="block text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Select Organization
-        </label>
-        <select
-          value={selectedOrgId}
-          onChange={(e) => setSelectedOrgId(e.target.value)}
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
-        >
-          <option value="">Choose an organization...</option>
-          {organizations.map((org) => (
-            <option key={org.id} value={org.id}>
-              {org.name} ({org.document_count} documents)
-            </option>
-          ))}
-        </select>
+        <p className="text-gray-600 dark:text-gray-300">Upload PDF documents to {currentOrganization.name}</p>
       </div>
 
       {/* File Upload Area */}
@@ -181,7 +160,7 @@ const Upload: React.FC = () => {
         )}
 
         {/* Upload Button */}
-        {files.length > 0 && selectedOrgId && (
+        {files.length > 0 && (
           <div className="border-t border-slate-200 dark:border-gray-700 p-6">
             <button
               onClick={handleUpload}
@@ -208,16 +187,6 @@ const Upload: React.FC = () => {
           </div>
         )}
       </div>
-
-      {organizations.length === 0 && (
-        <div className="text-center py-16">
-          <div className="w-24 h-24 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <FileText className="w-12 h-12 text-deep-blue dark:text-blue-400" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No organizations found</h3>
-          <p className="text-gray-600 dark:text-gray-300">Create an organization first to upload documents.</p>
-        </div>
-      )}
     </div>
   );
 };

@@ -1,38 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { Send, Bot, User, FileText } from 'lucide-react';
-import { Organization, ChatMessage } from '../types';
+import { ChatMessage } from '../types';
 import { organizationApi } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const Chat: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const orgId = searchParams.get('org');
-  const [organization, setOrganization] = useState<Organization | null>(null);
+  const { currentOrganization } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (orgId) {
-      loadOrganization();
-    }
-  }, [orgId]);
-
-  useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  const loadOrganization = async () => {
-    if (!orgId) return;
-    
-    try {
-      const org = await organizationApi.getById(orgId);
-      setOrganization(org);
-    } catch (error) {
-      console.error('Failed to load organization:', error);
-    }
-  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,7 +21,7 @@ const Chat: React.FC = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentMessage.trim() || !orgId || loading) return;
+    if (!currentMessage.trim() || !currentOrganization || loading) return;
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -54,7 +35,7 @@ const Chat: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await organizationApi.chat(orgId, currentMessage);
+      const response = await organizationApi.chat(currentOrganization.id, currentMessage);
       
       const botMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -78,22 +59,14 @@ const Chat: React.FC = () => {
     }
   };
 
-  if (!orgId) {
+  if (!currentOrganization) {
     return (
       <div className="max-w-4xl mx-auto text-center py-16">
         <div className="w-24 h-24 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
           <FileText className="w-12 h-12 text-deep-blue dark:text-blue-400" />
         </div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No Organization Selected</h2>
-        <p className="text-gray-600 dark:text-gray-300">Please select an organization from the dashboard to start chatting.</p>
-      </div>
-    );
-  }
-
-  if (!organization) {
-    return (
-      <div className="flex items-center justify-center min-h-96">
-        <div className="w-12 h-12 border-4 border-slate-200 dark:border-gray-700 border-t-deep-blue dark:border-t-blue-400 rounded-full animate-spin"></div>
+        <p className="text-gray-600 dark:text-gray-300">Please log in to start chatting.</p>
       </div>
     );
   }
@@ -107,8 +80,8 @@ const Chat: React.FC = () => {
             <Bot className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{organization.name}</h1>
-            <p className="text-gray-600 dark:text-gray-300">{organization.document_count} documents • AI Assistant</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{currentOrganization.name}</h1>
+            <p className="text-gray-600 dark:text-gray-300">{currentOrganization.document_count} documents • AI Assistant</p>
           </div>
         </div>
       </div>
