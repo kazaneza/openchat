@@ -13,6 +13,7 @@ import uvicorn
 import tiktoken
 import re
 import traceback
+import hashlib
 
 # Try to import OpenAI, handle if not available
 try:
@@ -50,6 +51,7 @@ app.add_middleware(
 
 # Data storage paths
 ORGANIZATIONS_FILE = "data/organizations.json"
+USERS_FILE = "data/users.json"
 UPLOADS_DIR = "data/uploads"
 
 # Ensure directories exist
@@ -67,6 +69,26 @@ def save_organizations(organizations):
     """Save organizations to JSON file"""
     with open(ORGANIZATIONS_FILE, 'w') as f:
         json.dump(organizations, f, indent=2)
+
+def load_users():
+    """Load users from JSON file"""
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_users(users):
+    """Save users to JSON file"""
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f, indent=2)
+
+def hash_password(password: str) -> str:
+    """Hash password using SHA-256"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify password against hash"""
+    return hash_password(password) == hashed
 
 def chunk_text(text: str, max_tokens: int = 1000) -> List[str]:
     """Split text into chunks that fit within token limits"""
@@ -180,6 +202,151 @@ Document Context:
         traceback.print_exc()
         return f"Sorry, there was an error processing your request: {str(e)}"
 
+# Admin endpoints
+@app.get("/api/admin/organizations")
+async def admin_get_organizations():
+    """Get all organizations with users for admin"""
+    organizations = load_organizations()
+    users = load_users()
+    
+    # Add users to each organization
+    for org_id, org in organizations.items():
+        org_users = [user for user in users.values() if user['organization_id'] == org_id]
+        org['users'] = org_users
+    
+    return {"organizations": list(organizations.values())}
+
+@app.post("/api/admin/organizations")
+async def admin_create_organization(name: str = Form(...), prompt: str = Form(...)):
+    """Create a new organization (admin only)"""
+    organizations = load_organizations()
+    
+    org_id = str(uuid.uuid4())
+    organization = {
+        "id": org_id,
+        "name": name,
+        "prompt": prompt,
+        "documents": [],
+        "created_at": datetime.now().isoformat(),
+        "document_count": 0,
+        "users": []
+    }
+    
+    organizations[org_id] = organization
+    save_organizations(organizations)
+    
+    return {"organization": organization}
+
+@app.delete("/api/admin/organizations/{org_id}")
+async def admin_delete_organization(org_id: str):
+    """Delete an organization and all its users (admin only)"""
+    organizations = load_organizations()
+    users = load_users()
+    
+    if org_id not in organizations:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Delete associated files
+    organization = organizations[org_id]
+    for doc in organization["documents"]:
+        if os.path.exists(doc["file_path"]):
+            os.remove(doc["file_path"])
+    
+    # Delete users belonging to this organization
+    users_to_delete = [user_id for user_id, user in users.items() if user['organization_id'] == org_id]
+    for user_id in users_to_delete:
+        del users[user_id]
+    
+    # Remove organization
+    del organizations[org_id]
+    save_organizations(organizations)
+    save_users(users)
+    
+    return {"message": "Organization and all associated users deleted successfully"}
+
+@app.post("/api/admin/users")
+async def admin_create_user(
+    email: str = Form(...), 
+    password: str = Form(...), 
+    organization_id: str = Form(...),
+    role: str = Form(...)
+):
+    """Create a new user (admin only)"""
+    users = load_users()
+    organizations = load_organizations()
+    
+    # Check if organization exists
+    if organization_id not in organizations:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Check if email already exists
+    for user in users.values():
+        if user['email'] == email:
+            raise HTTPException(status_code=400, detail="Email already exists")
+    
+    user_id = str(uuid.uuid4())
+    user = {
+        "id": user_id,
+        "email": email,
+        "password": hash_password(password),
+        "organization_id": organization_id,
+        "role": role,
+        "created_at": datetime.now().isoformat()
+    }
+    
+    users[user_id] = user
+    save_users(users)
+    
+    # Return user without password
+    user_response = user.copy()
+    del user_response['password']
+    
+    return {"user": user_response}
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: str):
+    """Delete a user (admin only)"""
+    users = load_users()
+    
+    if user_id not in users:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    del users[user_id]
+    save_users(users)
+    
+    return {"message": "User deleted successfully"}
+
+# Authentication endpoints
+@app.post("/api/auth/login")
+async def authenticate_user(email: str = Form(...), password: str = Form(...)):
+    """Authenticate user and return organization data"""
+    users = load_users()
+    organizations = load_organizations()
+    
+    # Find user by email
+    user = None
+    for u in users.values():
+        if u['email'] == email:
+            user = u
+            break
+    
+    if not user or not verify_password(password, user['password']):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Get user's organization
+    organization = organizations.get(user['organization_id'])
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Return user and organization data (without password)
+    user_response = user.copy()
+    del user_response['password']
+    
+    return {
+        "user": user_response,
+        "organization": organization
+    }
+
 @app.get("/api/organizations")
 async def get_organizations():
     """Get all organizations"""
@@ -207,12 +374,18 @@ async def create_organization(name: str = Form(...), prompt: str = Form(...)):
     return {"organization": organization}
 
 @app.post("/api/organizations/{org_id}/upload")
-async def upload_documents(org_id: str, files: List[UploadFile] = File(...)):
+async def upload_documents(org_id: str, files: List[UploadFile] = File(...), user_id: str = Form(...)):
     """Upload PDF documents to an organization"""
     organizations = load_organizations()
+    users = load_users()
     
     if org_id not in organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Verify user belongs to this organization
+    user = users.get(user_id)
+    if not user or user['organization_id'] != org_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     uploaded_docs = []
     
@@ -253,13 +426,19 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...)):
     return {"uploaded_documents": uploaded_docs}
 
 @app.post("/api/organizations/{org_id}/chat")
-async def chat_with_documents(org_id: str, message: str = Form(...)):
+async def chat_with_documents(org_id: str, message: str = Form(...), user_id: str = Form(...)):
     """Chat with the documents in an organization"""
     try:
         organizations = load_organizations()
+        users = load_users()
         
         if org_id not in organizations:
             raise HTTPException(status_code=404, detail="Organization not found")
+        
+        # Verify user belongs to this organization
+        user = users.get(user_id)
+        if not user or user['organization_id'] != org_id:
+            raise HTTPException(status_code=403, detail="Access denied")
         
         organization = organizations[org_id]
         
@@ -383,34 +562,20 @@ async def public_chat_endpoint(org_id: str, message: str = Form(...)):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/api/organizations/{org_id}")
-async def get_organization(org_id: str):
+async def get_organization(org_id: str, user_id: str = Form(...)):
     """Get a specific organization"""
     organizations = load_organizations()
+    users = load_users()
     
     if org_id not in organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Verify user belongs to this organization
+    user = users.get(user_id)
+    if not user or user['organization_id'] != org_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     return {"organization": organizations[org_id]}
-
-@app.delete("/api/organizations/{org_id}")
-async def delete_organization(org_id: str):
-    """Delete an organization and its documents"""
-    organizations = load_organizations()
-    
-    if org_id not in organizations:
-        raise HTTPException(status_code=404, detail="Organization not found")
-    
-    # Delete associated files
-    organization = organizations[org_id]
-    for doc in organization["documents"]:
-        if os.path.exists(doc["file_path"]):
-            os.remove(doc["file_path"])
-    
-    # Remove organization
-    del organizations[org_id]
-    save_organizations(organizations)
-    
-    return {"message": "Organization deleted successfully"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

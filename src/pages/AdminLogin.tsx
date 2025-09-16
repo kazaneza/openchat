@@ -1,16 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { MessageSquare, Mail, Lock, Eye, EyeOff, Shield } from 'lucide-react';
-import { adminApi } from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useState } from 'react';
+import { Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const Login: React.FC = () => {
+const AdminLogin: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -24,10 +21,15 @@ const Login: React.FC = () => {
     setError('');
 
     try {
-      const response = await adminApi.authenticateUser(email, password);
-      login(response.organization, response.user);
+      // Admin login check
+      if (email === 'admin@openchat.com' && password === 'admin123') {
+        localStorage.setItem('adminAuth', 'true');
+        navigate('/admin');
+      } else {
+        setError('Invalid admin credentials');
+      }
     } catch (error) {
-      setError('Invalid credentials. Please check your email and password.');
+      setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -39,14 +41,14 @@ const Login: React.FC = () => {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center space-x-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-r from-deep-blue to-slate-gray rounded-xl flex items-center justify-center">
-              <MessageSquare className="w-7 h-7 text-white" />
+            <div className="w-12 h-12 bg-gradient-to-r from-red-600 to-red-700 rounded-xl flex items-center justify-center">
+              <Shield className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-deep-blue to-slate-gray dark:from-blue-400 dark:to-slate-300 bg-clip-text text-transparent">
-                OpenChat
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
+                Admin Portal
               </h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400">AI-Powered Organization Chat</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">OpenChat Administration</p>
             </div>
           </div>
         </div>
@@ -54,7 +56,7 @@ const Login: React.FC = () => {
         {/* Login Form */}
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-8 border border-slate-200 dark:border-gray-700 shadow-xl">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 text-center">
-            Organization Login
+            Administrator Login
           </h2>
 
           {error && (
@@ -67,19 +69,16 @@ const Login: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Mail className="w-4 h-4 inline mr-2" />
-                Email Address
+                Admin Email
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
-                placeholder="Enter your email address"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 dark:focus:ring-red-400 focus:border-transparent"
+                placeholder="Enter admin email"
                 required
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Enter your organization email address
-              </p>
             </div>
 
             <div>
@@ -92,8 +91,8 @@ const Login: React.FC = () => {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
-                  placeholder="Enter your password"
+                  className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 dark:focus:ring-red-400 focus:border-transparent"
+                  placeholder="Enter admin password"
                   required
                 />
                 <button
@@ -104,15 +103,12 @@ const Login: React.FC = () => {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Enter your password
-              </p>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full px-4 py-3 bg-gradient-to-r from-deep-blue to-slate-gray text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              className="w-full px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
             >
               {loading ? (
                 <>
@@ -120,18 +116,25 @@ const Login: React.FC = () => {
                   <span>Signing in...</span>
                 </>
               ) : (
-                <span>Sign In</span>
+                <span>Sign In as Admin</span>
               )}
             </button>
           </form>
 
-          <div className="text-center mt-6">
+          <div className="text-center mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <p className="text-gray-600 dark:text-gray-300 text-sm">
+              <strong>Demo Admin Credentials:</strong><br />
+              Email: admin@openchat.com<br />
+              Password: admin123
+            </p>
+          </div>
+
+          <div className="text-center mt-4">
             <button
-              onClick={() => navigate('/admin/login')}
-              className="flex items-center justify-center space-x-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+              onClick={() => navigate('/login')}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
-              <Shield className="w-4 h-4" />
-              <span>Admin Portal</span>
+              ← Back to User Login
             </button>
           </div>
         </div>
@@ -140,4 +143,4 @@ const Login: React.FC = () => {
   );
 };
 
-export default Login;
+export default AdminLogin;
