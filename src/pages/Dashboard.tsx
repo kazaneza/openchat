@@ -105,7 +105,7 @@ const Dashboard: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-96">
-        <div className="w-12 h-12 border-4 border-rose-200 border-t-rose-500 rounded-full animate-spin"></div>
+        <div className="w-12 h-12 border-4 border-slate-200 dark:border-gray-700 border-t-deep-blue dark:border-t-blue-400 rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -114,8 +114,8 @@ const Dashboard: React.FC = () => {
     <div className="max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Organizations</h1>
-        <p className="text-gray-600">Manage your AI-powered PDF chat organizations</p>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Organizations</h1>
+        <p className="text-gray-600 dark:text-gray-300">Manage your AI-powered PDF chat organizations</p>
         {copySuccess && (
           <div className="mt-2 flex items-center text-green-600">
             <Check className="w-4 h-4 mr-1" />
@@ -139,10 +139,10 @@ const Dashboard: React.FC = () => {
       {organizations.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Plus className="w-12 h-12 text-blue-900" />
+            <Plus className="w-12 h-12 text-deep-blue dark:text-blue-400" />
           </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">No organizations yet</h3>
-          <p className="text-gray-600 mb-6">Create your first organization to get started</p>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No organizations yet</h3>
+          <p className="text-gray-600 dark:text-gray-300 mb-6">Create your first organization to get started</p>
           <button
             onClick={() => setShowCreateModal(true)}
             className="px-6 py-3 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 font-medium"
@@ -167,26 +167,26 @@ const Dashboard: React.FC = () => {
 
       {/* Test Endpoint Modal */}
       {showTestModal && selectedOrg && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Test Endpoint: {selectedOrg.name}</h2>
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Test Endpoint: {selectedOrg.name}</h2>
             
-            <div className="mb-6 p-4 bg-gray-50 rounded-xl">
-              <h3 className="font-semibold text-gray-900 mb-2">Endpoint URL:</h3>
-              <code className="text-sm text-gray-600 break-all">
+            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Endpoint URL:</h3>
+              <code className="text-sm text-gray-600 dark:text-gray-300 break-all">
                 POST http://localhost:8000/chat/{selectedOrg.id}
               </code>
             </div>
 
             <form onSubmit={handleSendTestMessage} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Test Message
                 </label>
                 <textarea
                   value={testMessage}
                   onChange={(e) => setTestMessage(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent h-24 resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent h-24 resize-none"
                   placeholder="Enter your test message here..."
                   required
                 />
@@ -210,9 +210,9 @@ const Dashboard: React.FC = () => {
 
             {testResponse && (
               <div className="mt-6">
-                <h3 className="font-semibold text-gray-900 mb-2">Response:</h3>
-                <div className="p-4 bg-gray-50 rounded-xl">
-                  <p className="text-gray-700 whitespace-pre-wrap">{testResponse}</p>
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Response:</h3>
+                <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                  <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{testResponse}</p>
                 </div>
               </div>
             )}
@@ -221,7 +221,7 @@ const Dashboard: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowTestModal(false)}
-                className="px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
+                className="px-6 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
               >
                 Close
               </button>
@@ -231,33 +231,33 @@ const Dashboard: React.FC = () => {
       )}
       {/* Create Organization Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-8 w-full max-w-md">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Create Organization</h2>
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 w-full max-w-md">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Create Organization</h2>
             
             <form onSubmit={handleCreateOrganization} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Organization Name
                 </label>
                 <input
                   type="text"
                   value={newOrg.name}
                   onChange={(e) => setNewOrg({ ...newOrg, name: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
                   placeholder="Enter organization name"
                   required
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   System Prompt
                 </label>
                 <textarea
                   value={newOrg.prompt}
                   onChange={(e) => setNewOrg({ ...newOrg, prompt: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent h-32 resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent h-32 resize-none"
                   placeholder="Enter the system prompt for this organization's AI assistant (e.g., 'You are a helpful assistant that answers questions about company policies based on the provided documents.')"
                   required
                 />
@@ -267,7 +267,7 @@ const Dashboard: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium"
                 >
                   Cancel
                 </button>

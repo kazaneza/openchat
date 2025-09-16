@@ -85,19 +85,19 @@ const Upload: React.FC = () => {
     <div className="max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Upload Documents</h1>
-        <p className="text-gray-600">Upload PDF documents to your organizations</p>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Upload Documents</h1>
+        <p className="text-gray-600 dark:text-gray-300">Upload PDF documents to your organizations</p>
       </div>
 
       {/* Organization Selection */}
-      <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 mb-6">
-        <label className="block text-lg font-semibold text-gray-900 mb-4">
+      <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-gray-700 mb-6">
+        <label className="block text-lg font-semibold text-gray-900 dark:text-white mb-4">
           Select Organization
         </label>
         <select
           value={selectedOrgId}
           onChange={(e) => setSelectedOrgId(e.target.value)}
-          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent"
+          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
         >
           <option value="">Choose an organization...</option>
           {organizations.map((org) => (
@@ -109,12 +109,12 @@ const Upload: React.FC = () => {
       </div>
 
       {/* File Upload Area */}
-      <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-gray-700 overflow-hidden">
         <div
           className={`p-8 border-2 border-dashed transition-colors ${
             dragActive
-              ? 'border-blue-400 bg-slate-50'
-              : 'border-gray-300 hover:border-blue-400'
+              ? 'border-blue-400 bg-slate-50 dark:bg-gray-700'
+              : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-400'
           }`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
@@ -122,13 +122,13 @@ const Upload: React.FC = () => {
           onDrop={handleDrop}
         >
           <div className="text-center">
-            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <UploadIcon className="w-8 h-8 text-blue-900" />
+            <div className="w-16 h-16 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+              <UploadIcon className="w-8 h-8 text-deep-blue dark:text-blue-400" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
               Drop PDF files here, or click to select
             </h3>
-            <p className="text-gray-600 mb-4">
+            <p className="text-gray-600 dark:text-gray-300 mb-4">
               Upload multiple PDF documents at once
             </p>
             <input
@@ -151,26 +151,26 @@ const Upload: React.FC = () => {
 
         {/* File List */}
         {files.length > 0 && (
-          <div className="border-t border-slate-200 p-6">
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">
+          <div className="border-t border-slate-200 dark:border-gray-700 p-6">
+            <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Selected Files ({files.length})
             </h4>
             <div className="space-y-3 max-h-64 overflow-y-auto">
               {files.map((file, index) => (
                 <div
                   key={index}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                 >
                   <div className="flex items-center space-x-3">
-                    <FileText className="w-5 h-5 text-blue-900" />
+                    <FileText className="w-5 h-5 text-deep-blue dark:text-blue-400" />
                     <div>
-                      <p className="font-medium text-gray-900">{file.name}</p>
-                      <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
+                      <p className="font-medium text-gray-900 dark:text-white">{file.name}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{formatFileSize(file.size)}</p>
                     </div>
                   </div>
                   <button
                     onClick={() => removeFile(index)}
-                    className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                    className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -182,7 +182,7 @@ const Upload: React.FC = () => {
 
         {/* Upload Button */}
         {files.length > 0 && selectedOrgId && (
-          <div className="border-t border-slate-200 p-6">
+          <div className="border-t border-slate-200 dark:border-gray-700 p-6">
             <button
               onClick={handleUpload}
               disabled={uploading || uploadComplete}
@@ -211,11 +211,11 @@ const Upload: React.FC = () => {
 
       {organizations.length === 0 && (
         <div className="text-center py-16">
-          <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <FileText className="w-12 h-12 text-blue-900" />
+          <div className="w-24 h-24 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+            <FileText className="w-12 h-12 text-deep-blue dark:text-blue-400" />
           </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">No organizations found</h3>
-          <p className="text-gray-600">Create an organization first to upload documents.</p>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No organizations found</h3>
+          <p className="text-gray-600 dark:text-gray-300">Create an organization first to upload documents.</p>
         </div>
       )}
     </div>

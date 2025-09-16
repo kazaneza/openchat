@@ -81,11 +81,11 @@ const Chat: React.FC = () => {
   if (!orgId) {
     return (
       <div className="max-w-4xl mx-auto text-center py-16">
-        <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <FileText className="w-12 h-12 text-blue-900" />
+        <div className="w-24 h-24 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+          <FileText className="w-12 h-12 text-deep-blue dark:text-blue-400" />
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">No Organization Selected</h2>
-        <p className="text-gray-600">Please select an organization from the dashboard to start chatting.</p>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No Organization Selected</h2>
+        <p className="text-gray-600 dark:text-gray-300">Please select an organization from the dashboard to start chatting.</p>
       </div>
     );
   }
@@ -93,7 +93,7 @@ const Chat: React.FC = () => {
   if (!organization) {
     return (
       <div className="flex items-center justify-center min-h-96">
-        <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-900 rounded-full animate-spin"></div>
+        <div className="w-12 h-12 border-4 border-slate-200 dark:border-gray-700 border-t-deep-blue dark:border-t-blue-400 rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -101,28 +101,28 @@ const Chat: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto h-[calc(100vh-4rem)] flex flex-col">
       {/* Header */}
-      <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 mb-6">
+      <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 dark:border-gray-700 mb-6">
         <div className="flex items-center space-x-4">
           <div className="w-12 h-12 bg-gradient-to-r from-blue-900 to-slate-700 rounded-xl flex items-center justify-center">
             <Bot className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{organization.name}</h1>
-            <p className="text-gray-600">{organization.document_count} documents • AI Assistant</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{organization.name}</h1>
+            <p className="text-gray-600 dark:text-gray-300">{organization.document_count} documents • AI Assistant</p>
           </div>
         </div>
       </div>
 
       {/* Chat Messages */}
-      <div className="flex-1 bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 flex flex-col overflow-hidden">
+      <div className="flex-1 bg-white/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-gray-700 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.length === 0 ? (
             <div className="text-center py-16">
-              <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Bot className="w-8 h-8 text-blue-900" />
+              <div className="w-16 h-16 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Bot className="w-8 h-8 text-deep-blue dark:text-blue-400" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Start a conversation</h3>
-              <p className="text-gray-600">Ask questions about the documents in this organization. The AI will provide answers based on the content.</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Start a conversation</h3>
+              <p className="text-gray-600 dark:text-gray-300">Ask questions about the documents in this organization. The AI will provide answers based on the content.</p>
             </div>
           ) : (
             messages.map((message) => (
@@ -133,8 +133,8 @@ const Chat: React.FC = () => {
                       <div className="bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-2xl rounded-tr-none px-6 py-3 shadow-lg">
                         <p>{message.message}</p>
                       </div>
-                      <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <User className="w-4 h-4 text-blue-900" />
+                      <div className="w-8 h-8 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
+                        <User className="w-4 h-4 text-deep-blue dark:text-blue-400" />
                       </div>
                     </div>
                   </div>
@@ -146,8 +146,8 @@ const Chat: React.FC = () => {
                       <div className="w-8 h-8 bg-gradient-to-r from-blue-900 to-slate-700 rounded-full flex items-center justify-center flex-shrink-0">
                         <Bot className="w-4 h-4 text-white" />
                       </div>
-                      <div className="bg-slate-100 rounded-2xl rounded-tl-none px-6 py-3">
-                        <p className="whitespace-pre-wrap">{message.response}</p>
+                      <div className="bg-slate-100 dark:bg-gray-700 rounded-2xl rounded-tl-none px-6 py-3">
+                        <p className="whitespace-pre-wrap dark:text-gray-200">{message.response}</p>
                       </div>
                     </div>
                   </div>
@@ -162,11 +162,11 @@ const Chat: React.FC = () => {
                 <div className="w-8 h-8 bg-gradient-to-r from-blue-900 to-slate-700 rounded-full flex items-center justify-center">
                   <Bot className="w-4 h-4 text-white" />
                 </div>
-                <div className="bg-slate-100 rounded-2xl rounded-tl-none px-6 py-3">
+                <div className="bg-slate-100 dark:bg-gray-700 rounded-2xl rounded-tl-none px-6 py-3">
                   <div className="flex space-x-2">
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="w-2 h-2 bg-slate-400 dark:bg-gray-500 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-slate-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="w-2 h-2 bg-slate-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                   </div>
                 </div>
               </div>
@@ -177,14 +177,14 @@ const Chat: React.FC = () => {
         </div>
 
         {/* Message Input */}
-        <div className="border-t border-slate-200 p-6">
+        <div className="border-t border-slate-200 dark:border-gray-700 p-6">
           <form onSubmit={handleSendMessage} className="flex space-x-4">
             <input
               type="text"
               value={currentMessage}
               onChange={(e) => setCurrentMessage(e.target.value)}
               placeholder="Ask a question about the documents..."
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent"
+              className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
               disabled={loading}
             />
             <button
