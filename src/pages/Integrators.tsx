@@ -240,27 +240,6 @@ const Integrators: React.FC = () => {
         </div>
       )}
 
-      {/* Help Section */}
-      <div className="mt-8 bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-6 border border-blue-200 dark:border-blue-800">
-        <div className="flex items-start space-x-3">
-          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-            <ExternalLink className="w-4 h-4 text-blue-600" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-blue-900 dark:text-blue-300 mb-2">Integration Support</h3>
-            <p className="text-blue-700 dark:text-blue-400 text-sm">
-              Each platform requires specific configuration with their respective vendors. Click "Connect" on any platform 
-              to get your chat endpoint and integration instructions. Contact the platform vendor for complete setup assistance.
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 bg-slate-50 dark:bg-gray-800 rounded-xl p-4">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{integrators.length}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-300">Available Platforms</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
