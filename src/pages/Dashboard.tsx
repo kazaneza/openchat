@@ -128,7 +128,7 @@ const Dashboard: React.FC = () => {
       <div className="mb-8">
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center px-6 py-3 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-xl hover:from-rose-600 hover:to-pink-600 transition-all duration-200 font-medium shadow-lg shadow-rose-500/30"
+          className="flex items-center px-6 py-3 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 font-medium shadow-lg shadow-blue-900/30"
         >
           <Plus className="w-5 h-5 mr-2" />
           Create Organization
@@ -138,14 +138,14 @@ const Dashboard: React.FC = () => {
       {/* Organizations Grid */}
       {organizations.length === 0 ? (
         <div className="text-center py-16">
-          <div className="w-24 h-24 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Plus className="w-12 h-12 text-rose-500" />
+          <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Plus className="w-12 h-12 text-blue-900" />
           </div>
           <h3 className="text-xl font-semibold text-gray-900 mb-2">No organizations yet</h3>
           <p className="text-gray-600 mb-6">Create your first organization to get started</p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="px-6 py-3 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-xl hover:from-rose-600 hover:to-pink-600 transition-all duration-200 font-medium"
+            className="px-6 py-3 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 font-medium"
           >
             Create Organization
           </button>
@@ -186,7 +186,7 @@ const Dashboard: React.FC = () => {
                 <textarea
                   value={testMessage}
                   onChange={(e) => setTestMessage(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent h-24 resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent h-24 resize-none"
                   placeholder="Enter your test message here..."
                   required
                 />
@@ -195,7 +195,7 @@ const Dashboard: React.FC = () => {
               <button
                 type="submit"
                 disabled={testLoading || !testMessage.trim()}
-                className="w-full px-4 py-3 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-xl hover:from-rose-600 hover:to-pink-600 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                className="w-full px-4 py-3 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
               >
                 {testLoading ? (
                   <>
@@ -244,7 +244,7 @@ const Dashboard: React.FC = () => {
                   type="text"
                   value={newOrg.name}
                   onChange={(e) => setNewOrg({ ...newOrg, name: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent"
                   placeholder="Enter organization name"
                   required
                 />
@@ -257,7 +257,7 @@ const Dashboard: React.FC = () => {
                 <textarea
                   value={newOrg.prompt}
                   onChange={(e) => setNewOrg({ ...newOrg, prompt: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent h-32 resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent h-32 resize-none"
                   placeholder="Enter the system prompt for this organization's AI assistant (e.g., 'You are a helpful assistant that answers questions about company policies based on the provided documents.')"
                   required
                 />
@@ -273,7 +273,7 @@ const Dashboard: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-xl hover:from-rose-600 hover:to-pink-600 transition-all duration-200 font-medium"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 font-medium"
                 >
                   Create
                 </button>

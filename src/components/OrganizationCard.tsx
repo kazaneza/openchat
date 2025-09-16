@@ -18,14 +18,14 @@ const OrganizationCard: React.FC<OrganizationCardProps> = ({
   onTestEndpoint,
 }) => {
   return (
-    <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-rose-200 hover:border-rose-300 transition-all duration-300 hover:shadow-xl hover:shadow-rose-500/10 group">
+    <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-slate-200 hover:border-slate-300 transition-all duration-300 hover:shadow-xl hover:shadow-blue-900/10 group">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center space-x-3">
-          <div className="w-12 h-12 bg-gradient-to-r from-rose-500 to-pink-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
+          <div className="w-12 h-12 bg-gradient-to-r from-blue-900 to-slate-700 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
             <Building2 className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 group-hover:text-rose-600 transition-colors">
+            <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-900 transition-colors">
               {organization.name}
             </h3>
             <div className="flex items-center text-sm text-gray-500 mt-1">
@@ -57,7 +57,7 @@ const OrganizationCard: React.FC<OrganizationCardProps> = ({
               e.stopPropagation();
               onCopyEndpoint(organization.id);
             }}
-            className="p-1 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded transition-all duration-200"
+            className="p-1 text-gray-500 hover:text-blue-900 hover:bg-slate-50 rounded transition-all duration-200"
             title="Copy endpoint URL"
           >
             <Copy className="w-4 h-4" />
@@ -80,14 +80,14 @@ const OrganizationCard: React.FC<OrganizationCardProps> = ({
               e.stopPropagation();
               onTestEndpoint(organization);
             }}
-            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 text-sm font-medium flex items-center space-x-1"
+            className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all duration-200 text-sm font-medium flex items-center space-x-1"
           >
             <ExternalLink className="w-4 h-4" />
             <span>Test</span>
           </button>
           <button
             onClick={() => onSelect(organization)}
-            className="px-4 py-2 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-lg hover:from-rose-600 hover:to-pink-600 transition-all duration-200 text-sm font-medium shadow-lg shadow-rose-500/30"
+            className="px-4 py-2 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-lg hover:from-blue-800 hover:to-slate-600 transition-all duration-200 text-sm font-medium shadow-lg shadow-blue-900/30"
           >
             Open Chat
           </button>
