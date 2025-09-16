@@ -251,14 +251,17 @@ const Integrators: React.FC = () => {
             <p className="text-blue-700 dark:text-blue-400 text-sm">
               Each platform requires specific configuration with their respective vendors. Click "Connect" on any platform 
               to get your chat endpoint and integration instructions. Contact the platform vendor for complete setup assistance.
-            </div>
+            </p>
+          </div>
+        </div>
+        <div className="bg-slate-50 dark:bg-gray-800 rounded-xl p-4">
+          <div className="flex items-center space-x-4">
             <div>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{integrators.length}</p>
               <p className="text-sm text-gray-600 dark:text-gray-300">Available Platforms</p>
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 };
