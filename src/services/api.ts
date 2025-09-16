@@ -94,6 +94,7 @@ export const adminApi = {
     formData.append('password', userData.password);
     formData.append('organization_id', userData.organization_id);
     formData.append('role', userData.role);
+    formData.append('must_change_password', userData.must_change_password?.toString() || 'true');
     
     const response = await api.post('/admin/users', formData);
     return response.data.user;

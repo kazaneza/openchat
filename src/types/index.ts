@@ -15,6 +15,8 @@ export interface Organization {
   created_at: string;
   document_count: number;
   users: User[];
+  chat_count?: number;
+  last_activity?: string;
 }
 
 export interface User {
@@ -23,6 +25,7 @@ export interface User {
   password: string;
   organization_id: string;
   role: 'admin' | 'user';
+  must_change_password?: boolean;
   created_at: string;
 }
 

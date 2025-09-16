@@ -269,7 +269,8 @@ async def admin_create_user(
     email: str = Form(...), 
     password: str = Form(...), 
     organization_id: str = Form(...),
-    role: str = Form(...)
+    role: str = Form(...),
+    must_change_password: bool = Form(True)
 ):
     """Create a new user (admin only)"""
     users = load_users()
@@ -291,6 +292,7 @@ async def admin_create_user(
         "password": hash_password(password),
         "organization_id": organization_id,
         "role": role,
+        "must_change_password": must_change_password,
         "created_at": datetime.now().isoformat()
     }
     
@@ -365,7 +367,9 @@ async def create_organization(name: str = Form(...), prompt: str = Form(...)):
         "prompt": prompt,
         "documents": [],
         "created_at": datetime.now().isoformat(),
-        "document_count": 0
+        "document_count": 0,
+        "chat_count": 0,
+        "last_activity": None
     }
     
     organizations[org_id] = organization
@@ -472,6 +476,11 @@ async def chat_with_documents(org_id: str, message: str = Form(...), user_id: st
         # Generate AI-powered response
         ai_response = generate_ai_response(system_prompt, message, combined_context)
         
+        # Update organization stats
+        organizations[org_id]["chat_count"] = organizations[org_id].get("chat_count", 0) + 1
+        organizations[org_id]["last_activity"] = datetime.now().isoformat()
+        save_organizations(organizations)
+        
         return {
             "response": ai_response,
             "document_count": len(organization["documents"]),
@@ -548,6 +557,11 @@ async def public_chat_endpoint(org_id: str, message: str = Form(...)):
         
         # Generate AI-powered response
         ai_response = generate_ai_response(system_prompt, message, combined_context)
+        
+        # Update organization stats
+        organizations[org_id]["chat_count"] = organizations[org_id].get("chat_count", 0) + 1
+        organizations[org_id]["last_activity"] = datetime.now().isoformat()
+        save_organizations(organizations)
         
         return {
             "response": ai_response,
