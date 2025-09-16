@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Organization } from '../types';
 
 interface AuthContextType {
@@ -44,6 +45,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentOrganization(organization);
     setIsAuthenticated(true);
     localStorage.setItem('currentOrganization', JSON.stringify(organization));
+    // Navigate to chat page after successful login
+    window.location.href = '/chat';
   };
 
   const logout = () => {
