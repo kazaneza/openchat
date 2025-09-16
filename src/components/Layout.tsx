@@ -17,22 +17,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-pink-50">
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50">
       {/* Sidebar */}
-      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white/80 backdrop-blur-xl border-r border-rose-200">
-      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-300">
+      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white/80 backdrop-blur-xl border-r border-silver">
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="flex items-center px-6 py-8">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-900 to-slate-700 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-r from-deep-blue to-slate-gray rounded-lg flex items-center justify-center">
                 <MessageSquare className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-bold bg-gradient-to-r from-blue-900 to-slate-700 bg-clip-text text-transparent">
+              <span className="text-xl font-bold bg-gradient-to-r from-deep-blue to-slate-gray bg-clip-text text-transparent">
                 PDF Chat
               </span>
-              <div className="ml-2 px-2 py-1 bg-gradient-to-r from-blue-900 to-slate-700 text-white text-xs rounded-full font-medium">
+              <div className="ml-2 px-2 py-1 bg-gradient-to-r from-deep-blue to-slate-gray text-white text-xs rounded-full font-medium">
                 AI Powered
               </div>
             </div>
@@ -50,8 +48,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   to={item.href}
                   className={`flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
                     isActive
-                      ? 'bg-gradient-to-r from-blue-900 to-slate-700 text-white shadow-lg shadow-blue-900/30'
-                      : 'text-gray-600 hover:bg-slate-50 hover:text-blue-900'
+                      ? 'bg-gradient-to-r from-deep-blue to-slate-gray text-white shadow-lg shadow-deep-blue/30'
+                      : 'text-gray-600 hover:bg-slate-50 hover:text-deep-blue'
                   }`}
                 >
                   <Icon className="w-5 h-5 mr-3" />
