@@ -14,7 +14,8 @@ class LanguageService:
                 'responses': {
                     'greeting': 'Mwiriwe! Ndashaka kugufasha. Ushobora kubaza ibibazo bijyanye n\'inyandiko cyangwa ibindi.',
                     'help': 'Ndashaka kugufasha. Ushobora kubaza ibibazo bijyanye n\'inyandiko cyangwa ibindi.',
-                    'error': 'Ihangane, habaye ikosa. Ongera ugerageze.'
+                    'error': 'Ihangane, habaye ikosa. Ongera ugerageze.',
+                    'processing': 'Ndimo gukora...'
                 }
             },
             'fr': {  # French
@@ -22,7 +23,8 @@ class LanguageService:
                 'responses': {
                     'greeting': 'Bonjour! Je suis là pour vous aider. Vous pouvez me poser des questions sur les documents ou autres sujets.',
                     'help': 'Je peux vous aider avec des questions sur les documents ou des sujets généraux.',
-                    'error': 'Désolé, il y a eu une erreur. Veuillez réessayer.'
+                    'error': 'Désolé, il y a eu une erreur. Veuillez réessayer.',
+                    'processing': 'Traitement en cours...'
                 }
             },
             'sw': {  # Swahili
@@ -30,7 +32,8 @@ class LanguageService:
                 'responses': {
                     'greeting': 'Hujambo! Niko hapa kukusaidia. Unaweza kuuliza maswali kuhusu hati au mada nyingine.',
                     'help': 'Ninaweza kukusaidia na maswali kuhusu hati au mada za jumla.',
-                    'error': 'Samahani, kumekuwa na hitilafu. Tafadhali jaribu tena.'
+                    'error': 'Samahani, kumekuwa na hitilafu. Tafadhali jaribu tena.',
+                    'processing': 'Inachakata...'
                 }
             },
             'en': {  # English
@@ -38,7 +41,8 @@ class LanguageService:
                 'responses': {
                     'greeting': 'Hello! I\'m here to help you. You can ask questions about documents or other topics.',
                     'help': 'I can help you with questions about documents or general topics.',
-                    'error': 'Sorry, there was an error. Please try again.'
+                    'error': 'Sorry, there was an error. Please try again.',
+                    'processing': 'Processing...'
                 }
             }
         }
