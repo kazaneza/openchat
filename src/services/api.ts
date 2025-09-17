@@ -113,4 +113,14 @@ export const adminApi = {
     const response = await api.post('/auth/login', formData);
     return response.data;
   },
+
+  changePassword: async (userId: string, currentPassword: string, newPassword: string) => {
+    const formData = new FormData();
+    formData.append('user_id', userId);
+    formData.append('current_password', currentPassword);
+    formData.append('new_password', newPassword);
+    
+    const response = await api.post('/auth/change-password', formData);
+    return response.data;
+  },
 };

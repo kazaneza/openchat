@@ -349,6 +349,37 @@ async def authenticate_user(email: str = Form(...), password: str = Form(...)):
         "organization": organization
     }
 
+@app.post("/api/auth/change-password")
+async def change_password(
+    user_id: str = Form(...),
+    current_password: str = Form(...),
+    new_password: str = Form(...)
+):
+    """Change user password"""
+    users = load_users()
+    
+    if user_id not in users:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user = users[user_id]
+    
+    # Verify current password
+    if not verify_password(current_password, user['password']):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Update password and clear must_change_password flag
+    user['password'] = hash_password(new_password)
+    user['must_change_password'] = False
+    
+    users[user_id] = user
+    save_users(users)
+    
+    # Return user without password
+    user_response = user.copy()
+    del user_response['password']
+    
+    return {"message": "Password changed successfully", "user": user_response}
+
 @app.get("/api/organizations")
 async def get_organizations():
     """Get all organizations"""

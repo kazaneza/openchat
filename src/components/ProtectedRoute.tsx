@@ -1,13 +1,15 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import ChangePassword from '../pages/ChangePassword';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, currentUser } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -21,6 +23,10 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
+  // Check if user must change password (but not if already on change-password page)
+  if (currentUser?.must_change_password && location.pathname !== '/change-password') {
+    return <ChangePassword />;
+  }
   return <>{children}</>;
 };
 
