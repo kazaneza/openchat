@@ -89,14 +89,13 @@ class OpenAIService:
             print(f"Error finding similar chunks: {e}")
             return []
     
-    def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True) -> str:
     def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True, user_language: str = "en") -> str:
-        """Generate AI response using OpenAI GPT"""
+        """Generate AI response using OpenAI GPT with language enforcement"""
         if not self.client:
             return "OpenAI API key is not configured. Please set your OPENAI_API_KEY in the .env file."
         
         try:
-            # Add language enforcement to system prompt
+            # Add critical language enforcement to system prompt
             language_names = {
                 'rw': 'Kinyarwanda',
                 'fr': 'French', 
@@ -111,36 +110,24 @@ class OpenAIService:
             language_name = language_names.get(user_language, user_language)
             language_instruction = f"\n\nCRITICAL: You MUST respond in {language_name} ({user_language}). Do not use any other language."
             
+            # Use the provided system prompt with language enforcement
+            final_system_prompt = f"{system_prompt}{language_instruction}"
+            
             if is_document_query and context:
                 # Document-specific query with RAG
-                context_prompt = f"""
-{system_prompt}{language_instruction}
-
-Based on the following document excerpts, please answer the user's question. If the answer cannot be found in the provided documents, please say so clearly and offer to help with general questions.
-
-Document Context:
-{context}
-
-Instructions:
-- Answer based on the provided context when possible
-- If the context doesn't contain relevant information, acknowledge this
-- Be helpful and polite in your responses
-- You can also answer general questions outside of the document context
-"""
+                context_addition = f"\n\nDocument Context:\n{context}\n\nInstructions:\n- Answer based on the provided context when possible\n- If the context doesn't contain relevant information, acknowledge this\n- Be helpful and polite in your responses"
+                final_system_prompt += context_addition
             else:
-                # General query without document restriction
-                context_prompt = f"""
-{system_prompt}{language_instruction}
-
-You are a helpful AI assistant. You can answer both document-related questions (when context is provided) and general questions. Be helpful, polite, and informative.
-
-{f"Available context: {context}" if context else "No specific document context provided."}
-"""
+                # General query
+                if context:
+                    final_system_prompt += f"\n\nAvailable context: {context}"
+                else:
+                    final_system_prompt += "\n\nNo specific document context provided."
 
             response = self.client.chat.completions.create(
                 model=self.chat_model,
                 messages=[
-                    {"role": "system", "content": context_prompt},
+                    {"role": "system", "content": final_system_prompt},
                     {"role": "user", "content": user_message}
                 ],
                 max_tokens=self.max_tokens,
