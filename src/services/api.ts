@@ -41,9 +41,13 @@ export const organizationApi = {
     
     // Add user ID for authentication
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    console.log('Current user for upload:', currentUser);
     if (currentUser.id) {
       formData.append('user_id', currentUser.id);
     }
+    
+    console.log('Uploading to org:', orgId);
+    console.log('Files to upload:', files.map(f => f.name));
     
     const response = await api.post(`/organizations/${orgId}/upload`, formData, {
       headers: {

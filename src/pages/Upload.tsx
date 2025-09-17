@@ -48,12 +48,14 @@ const Upload: React.FC = () => {
 
     setUploading(true);
     try {
-      await organizationApi.uploadDocuments(currentOrganization.id, files);
+      const response = await organizationApi.uploadDocuments(currentOrganization.id, files);
+      console.log('Upload response:', response);
       setUploadComplete(true);
       setFiles([]);
       setTimeout(() => setUploadComplete(false), 3000);
     } catch (error) {
       console.error('Failed to upload files:', error);
+      alert('Failed to upload files. Please check the console for details.');
     } finally {
       setUploading(false);
     }

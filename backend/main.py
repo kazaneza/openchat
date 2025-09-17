@@ -415,35 +415,53 @@ async def create_organization(name: str = Form(...), prompt: str = Form(...)):
 @app.post("/api/organizations/{org_id}/upload")
 async def upload_documents(org_id: str, files: List[UploadFile] = File(...), user_id: str = Form(...)):
     """Upload PDF documents to an organization"""
+    print(f"Upload request - org_id: {org_id}, user_id: {user_id}")
+    print(f"Number of files: {len(files)}")
+    
     organizations = load_organizations()
     users = load_users()
     
     if org_id not in organizations:
+        print(f"Organization {org_id} not found")
         raise HTTPException(status_code=404, detail="Organization not found")
     
     # Verify user belongs to this organization
     user = users.get(user_id)
+    print(f"User found: {user is not None}")
     if not user or user['organization_id'] != org_id:
+        print(f"Access denied - user org: {user['organization_id'] if user else 'None'}, requested org: {org_id}")
         raise HTTPException(status_code=403, detail="Access denied")
     
     uploaded_docs = []
     
     for file in files:
+        print(f"Processing file: {file.filename}")
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
         
         # Read file content
         content = await file.read()
+        print(f"File size: {len(content)} bytes")
         
         # Extract text from PDF
-        text_content = extract_text_from_pdf(content)
+        try:
+            text_content = extract_text_from_pdf(content)
+            print(f"Extracted text length: {len(text_content)} characters")
+        except Exception as e:
+            print(f"PDF extraction error: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to process PDF {file.filename}: {str(e)}")
         
         # Save file
         file_id = str(uuid.uuid4())
         file_path = os.path.join(UPLOADS_DIR, f"{file_id}.pdf")
         
-        with open(file_path, "wb") as f:
-            f.write(content)
+        try:
+            with open(file_path, "wb") as f:
+                f.write(content)
+            print(f"File saved to: {file_path}")
+        except Exception as e:
+            print(f"File save error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
         
         # Create document record
         document = {
@@ -458,9 +476,11 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
         
         organizations[org_id]["documents"].append(document)
         uploaded_docs.append(document)
+        print(f"Document added: {file.filename}")
     
     organizations[org_id]["document_count"] = len(organizations[org_id]["documents"])
     save_organizations(organizations)
+    print(f"Upload complete. Total documents: {organizations[org_id]['document_count']}")
     
     return {"uploaded_documents": uploaded_docs}
 
