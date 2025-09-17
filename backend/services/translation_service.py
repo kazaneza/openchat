@@ -1,14 +1,13 @@
-from googletrans import Translator
 from typing import Optional, Tuple, Dict
 import traceback
 from .language_service import LanguageService
 
 class TranslationService:
-    def __init__(self):
-        self.translator = Translator()
+    def __init__(self, openai_service):
+        self.openai_service = openai_service
         self.language_service = LanguageService()
         
-        # Language code mapping for Google Translate
+        # Language code mapping for OpenAI
         self.lang_mapping = {
             'rw': 'rw',  # Kinyarwanda
             'fr': 'fr',  # French
@@ -18,6 +17,18 @@ class TranslationService:
             'de': 'de',  # German
             'it': 'it',  # Italian
             'pt': 'pt'   # Portuguese
+        }
+        
+        # Language names for OpenAI prompts
+        self.language_names = {
+            'rw': 'Kinyarwanda',
+            'fr': 'French', 
+            'sw': 'Swahili',
+            'en': 'English',
+            'es': 'Spanish',
+            'de': 'German',
+            'it': 'Italian',
+            'pt': 'Portuguese'
         }
         
         # Cache for translations to avoid repeated API calls
@@ -41,18 +52,21 @@ class TranslationService:
             if cache_key in self.translation_cache:
                 return self.translation_cache[cache_key], detected_lang, confidence
             
-            # Translate to English
-            translated = self.translator.translate(text, src=detected_lang, dest='en')
-            english_text = translated.text
+            # Translate to English using OpenAI
+            english_text = self._translate_with_openai(text, detected_lang, 'en')
+            
+            if not english_text:
+                # Fallback: return original text
+                return text, detected_lang, confidence
             
             # Cache the translation
             self.translation_cache[cache_key] = english_text
             
-            print(f"Translated '{text}' ({detected_lang}) → '{english_text}' (en)")
+            print(f"OpenAI Translated '{text[:50]}...' ({detected_lang}) → '{english_text[:50]}...' (en)")
             return english_text, detected_lang, confidence
             
         except Exception as e:
-            print(f"Translation to English failed: {e}")
+            print(f"OpenAI translation to English failed: {e}")
             # Fallback: return original text and assume English
             return text, 'en', 0.3
     
@@ -70,23 +84,65 @@ class TranslationService:
             if cache_key in self.translation_cache:
                 return self.translation_cache[cache_key]
             
-            # Translate from English to target language
-            translated = self.translator.translate(english_response, src='en', dest=target_language)
-            translated_text = translated.text
+            # Translate from English to target language using OpenAI
+            translated_text = self._translate_with_openai(english_response, 'en', target_language)
+            
+            if not translated_text:
+                # Fallback: return English response
+                return english_response
             
             # Cache the translation
             self.translation_cache[cache_key] = translated_text
             
-            print(f"Translated response '{english_response[:50]}...' (en) → '{translated_text[:50]}...' ({target_language})")
+            print(f"OpenAI Translated response '{english_response[:50]}...' (en) → '{translated_text[:50]}...' ({target_language})")
             return translated_text
             
         except Exception as e:
-            print(f"Translation to {target_language} failed: {e}")
+            print(f"OpenAI translation to {target_language} failed: {e}")
             # Fallback: return English response with explanation
             fallback_msg = self.language_service.get_localized_response('error', target_language)
             if fallback_msg:
                 return f"{fallback_msg}\n\n{english_response}"
             return english_response
+    
+    def _translate_with_openai(self, text: str, source_lang: str, target_lang: str) -> Optional[str]:
+        """Translate text using OpenAI"""
+        if not self.openai_service.is_available():
+            print("OpenAI service not available for translation")
+            return None
+        
+        try:
+            source_name = self.language_names.get(source_lang, source_lang)
+            target_name = self.language_names.get(target_lang, target_lang)
+            
+            # Create translation prompt
+            system_prompt = f"""You are a professional translator. Translate the given text from {source_name} to {target_name}.
+
+Rules:
+- Provide ONLY the translation, no explanations
+- Maintain the original meaning and tone
+- Keep technical terms and proper nouns when appropriate
+- If the text is already in {target_name}, return it unchanged
+- For greetings and common phrases, use natural, culturally appropriate translations"""
+
+            user_prompt = f"Translate this text to {target_name}: \"{text}\""
+            
+            # Use OpenAI for translation
+            translation = self.openai_service.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.1  # Low temperature for consistent translations
+            )
+            
+            return translation.choices[0].message.content.strip().strip('"')
+            
+        except Exception as e:
+            print(f"OpenAI translation error: {e}")
+            return None
     
     def is_translation_needed(self, language: str, confidence: float) -> bool:
         """
@@ -118,9 +174,9 @@ class TranslationService:
         }
     
     def clear_cache(self):
-        """Clear translation cache"""
+        """Clear OpenAI translation cache"""
         self.translation_cache.clear()
-        print("Translation cache cleared")
+        print("OpenAI translation cache cleared")
     
     def get_cache_stats(self) -> Dict:
         """Get translation cache statistics"""

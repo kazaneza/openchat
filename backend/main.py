@@ -28,7 +28,7 @@ document_service = DocumentService()
 vector_service = VectorService()
 prompt_service = PromptService()
 language_service = LanguageService()
-translation_service = TranslationService()
+translation_service = TranslationService(openai_service)
 embedding_service = EmbeddingService(openai_service, vector_service)
 query_service = QueryService(openai_service, document_service, embedding_service, vector_service, prompt_service, translation_service)
 
