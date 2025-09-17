@@ -112,11 +112,19 @@ const Upload: React.FC = () => {
     
     if (window.confirm('Are you sure you want to delete this document?')) {
       try {
-        // Note: You'll need to implement this endpoint in the backend
-        console.log('Delete document:', docId);
-        // await organizationApi.deleteDocument(currentOrganization.id, docId);
-        // await loadDocuments();
-        alert('Document deletion not yet implemented in backend');
+        await organizationApi.deleteDocument(currentOrganization.id, docId);
+        await loadDocuments();
+        
+        // Refresh organization data to update document count
+        try {
+          const updatedOrg = await organizationApi.getById(currentOrganization.id);
+          const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+          if (currentUser && updatedOrg) {
+            login(updatedOrg, currentUser);
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh organization data:', refreshError);
+        }
       } catch (error) {
         console.error('Failed to delete document:', error);
         alert('Failed to delete document');

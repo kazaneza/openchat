@@ -28,7 +28,13 @@ export const organizationApi = {
   },
 
   deleteDocument: async (orgId: string, docId: string) => {
-    const response = await api.delete(`/organizations/${orgId}/documents/${docId}`);
+    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const formData = new FormData();
+    formData.append('user_id', currentUser.id);
+    
+    const response = await api.delete(`/organizations/${orgId}/documents/${docId}`, {
+      data: formData
+    });
     return response.data;
   },
   uploadDocuments: async (orgId: string, files: File[]) => {

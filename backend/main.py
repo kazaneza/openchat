@@ -641,12 +641,20 @@ async def get_organization(org_id: str):
     return {"organization": organizations[org_id]}
 
 @app.delete("/api/organizations/{org_id}/documents/{doc_id}")
-async def delete_document(org_id: str, doc_id: str):
+async def delete_document(org_id: str, doc_id: str, user_id: str = Form(...)):
     """Delete a document from an organization"""
+    print(f"Delete document request - org_id: {org_id}, doc_id: {doc_id}, user_id: {user_id}")
+    
     organizations = load_organizations()
+    users = load_users()
     
     if org_id not in organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Verify user belongs to this organization
+    user = users.get(user_id)
+    if not user or user['organization_id'] != org_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     organization = organizations[org_id]
     
@@ -670,6 +678,8 @@ async def delete_document(org_id: str, doc_id: str):
     # Update document count
     organizations[org_id]["document_count"] = len(organization["documents"])
     save_organizations(organizations)
+    
+    print(f"Document {doc_to_delete['filename']} deleted successfully")
     
     return {"message": "Document deleted successfully"}
 if __name__ == "__main__":
