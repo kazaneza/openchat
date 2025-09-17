@@ -163,13 +163,6 @@ const ChangePassword: React.FC = () => {
             </button>
           </form>
 
-          <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-            <p className="text-blue-800 dark:text-blue-200 text-sm">
-              <strong>Password Requirements:</strong>
-              <br />• At least 6 characters long
-              <br />• Must be different from your current password
-            </p>
-          </div>
         </div>
       </div>
     </div>
