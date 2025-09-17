@@ -23,12 +23,6 @@ export const organizationApi = {
   },
 
   getById: async (id: string) => {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    const formData = new FormData();
-    if (currentUser.id) {
-      formData.append('user_id', currentUser.id);
-    }
-    
     const response = await api.get(`/organizations/${id}`);
     return response.data.organization;
   },

@@ -53,8 +53,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(true);
     localStorage.setItem('currentOrganization', JSON.stringify(organization));
     localStorage.setItem('currentUser', JSON.stringify(user));
-    // Navigate to chat page after successful login
-    window.location.href = '/chat';
+    // Only navigate on initial login, not on data refresh
+    if (!isAuthenticated) {
+      window.location.href = '/chat';
+    }
   };
 
   const logout = () => {

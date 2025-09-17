@@ -4,7 +4,7 @@ import { organizationApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const Upload: React.FC = () => {
-  const { currentOrganization } = useAuth();
+  const { currentOrganization, login } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
@@ -50,6 +50,18 @@ const Upload: React.FC = () => {
     try {
       const response = await organizationApi.uploadDocuments(currentOrganization.id, files);
       console.log('Upload response:', response);
+      
+      // Refresh organization data to get updated document count
+      try {
+        const updatedOrg = await organizationApi.getById(currentOrganization.id);
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        if (currentUser && updatedOrg) {
+          login(updatedOrg, currentUser);
+        }
+      } catch (refreshError) {
+        console.error('Failed to refresh organization data:', refreshError);
+      }
+      
       setUploadComplete(true);
       setFiles([]);
       setTimeout(() => setUploadComplete(false), 3000);

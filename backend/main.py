@@ -631,18 +631,12 @@ async def public_chat_endpoint(org_id: str, message: str = Form(...)):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/api/organizations/{org_id}")
-async def get_organization(org_id: str, user_id: str = Form(...)):
+async def get_organization(org_id: str):
     """Get a specific organization"""
     organizations = load_organizations()
-    users = load_users()
     
     if org_id not in organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
-    
-    # Verify user belongs to this organization
-    user = users.get(user_id)
-    if not user or user['organization_id'] != org_id:
-        raise HTTPException(status_code=403, detail="Access denied")
     
     return {"organization": organizations[org_id]}
 
