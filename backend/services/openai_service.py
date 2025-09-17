@@ -90,15 +90,31 @@ class OpenAIService:
             return []
     
     def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True) -> str:
+    def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True, user_language: str = "en") -> str:
         """Generate AI response using OpenAI GPT"""
         if not self.client:
             return "OpenAI API key is not configured. Please set your OPENAI_API_KEY in the .env file."
         
         try:
+            # Add language enforcement to system prompt
+            language_names = {
+                'rw': 'Kinyarwanda',
+                'fr': 'French', 
+                'sw': 'Swahili',
+                'en': 'English',
+                'es': 'Spanish',
+                'de': 'German',
+                'it': 'Italian',
+                'pt': 'Portuguese'
+            }
+            
+            language_name = language_names.get(user_language, user_language)
+            language_instruction = f"\n\nCRITICAL: You MUST respond in {language_name} ({user_language}). Do not use any other language."
+            
             if is_document_query and context:
                 # Document-specific query with RAG
                 context_prompt = f"""
-{system_prompt}
+{system_prompt}{language_instruction}
 
 Based on the following document excerpts, please answer the user's question. If the answer cannot be found in the provided documents, please say so clearly and offer to help with general questions.
 
@@ -114,7 +130,7 @@ Instructions:
             else:
                 # General query without document restriction
                 context_prompt = f"""
-{system_prompt}
+{system_prompt}{language_instruction}
 
 You are a helpful AI assistant. You can answer both document-related questions (when context is provided) and general questions. Be helpful, polite, and informative.
 

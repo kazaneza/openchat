@@ -169,5 +169,3 @@ LANGUAGE INSTRUCTION:
         }
     
     def translate_error_message(self, error_msg: str, target_language: str) -> str:
-        """Translate error messages to target language"""
-        return self.get_localized_response('error', target_language) or error_msg
