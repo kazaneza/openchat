@@ -1,9 +1,11 @@
 import os
 from typing import Dict, Optional
 from datetime import datetime
+from .language_service import LanguageService
 
 class PromptService:
     def __init__(self):
+        self.language_service = LanguageService()
         self.default_prompts = {
             "document_assistant": """You are a helpful AI assistant specialized in answering questions based on document content. 
 
@@ -77,7 +79,7 @@ Best practices:
             "knowledge_base": "Knowledge base search assistant"
         }
     
-    def create_contextual_prompt(self, base_prompt: str, organization_name: str, document_count: int, context_type: str = "document") -> str:
+    def create_contextual_prompt(self, base_prompt: str, organization_name: str, document_count: int, context_type: str = "document", user_language: str = "en", language_confidence: float = 0.8) -> str:
         """Create a contextual system prompt with organization details"""
         
         context_info = f"""
@@ -85,6 +87,7 @@ Organization: {organization_name}
 Available Documents: {document_count}
 Context Type: {context_type}
 Current Date: {datetime.now().strftime('%Y-%m-%d')}
+User Language: {user_language} (confidence: {language_confidence:.2f})
 """
         
         if context_type == "document" and document_count > 0:
@@ -100,7 +103,10 @@ Note: {organization_name} hasn't uploaded any documents yet. You can still help 
 You are assisting users from {organization_name}. Provide helpful, accurate information while maintaining a professional tone.
 """
         
-        return f"{base_prompt}\n\n{context_addition}\n\nContext Information:{context_info}"
+        # Add multilingual support
+        multilingual_prompt = self.language_service.create_multilingual_prompt(base_prompt, user_language, language_confidence)
+        
+        return f"{multilingual_prompt}\n\n{context_addition}\n\nContext Information:{context_info}"
     
     def validate_prompt(self, prompt: str) -> Dict[str, any]:
         """Validate a system prompt for potential issues"""

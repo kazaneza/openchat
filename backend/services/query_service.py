@@ -4,6 +4,7 @@ from .document_service import DocumentService
 from .embedding_service import EmbeddingService
 from .vector_service import VectorService
 from .prompt_service import PromptService
+from .language_service import LanguageService
 
 class QueryService:
     def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService, vector_service: VectorService, prompt_service: PromptService):
@@ -12,10 +13,28 @@ class QueryService:
         self.embedding_service = embedding_service
         self.vector_service = vector_service
         self.prompt_service = prompt_service
+        self.language_service = LanguageService()
     
     def process_query(self, message: str, organization: Dict, user_context: Dict = None) -> str:
         """Process user query with RAG approach"""
         try:
+            # Detect user's language
+            detected_language, confidence = self.language_service.detect_language(message)
+            print(f"Detected language: {detected_language} (confidence: {confidence:.2f})")
+            
+            # Handle greetings with localized responses
+            if self.language_service.is_greeting(message, detected_language):
+                return self.language_service.handle_greeting(
+                    message, 
+                    detected_language, 
+                    organization.get("name")
+                )
+            
+            # Handle low confidence language detection
+            if confidence < 0.5:
+                options = self.language_service.get_language_options_message()
+                return options.get(detected_language, options['en'])
+            
             # Detect query type
             query_type = self.openai_service.detect_query_type(message)
             print(f"Query type detected: {query_type}")
@@ -25,23 +44,29 @@ class QueryService:
             
             if not documents or query_type == "general":
                 # Handle general queries or no documents
-                return self._handle_general_query(message, organization, query_type)
+                return self._handle_general_query(message, organization, query_type, detected_language, confidence)
             
             # Handle document-specific queries with RAG
-            return self._handle_document_query(message, organization, documents)
+            return self._handle_document_query(message, organization, documents, detected_language, confidence)
         
         except Exception as e:
             print(f"Error processing query: {e}")
-            return "Sorry, there was an error processing your question. Please try again."
+            # Return localized error message
+            return self.language_service.translate_error_message(
+                "Sorry, there was an error processing your question. Please try again.",
+                detected_language if 'detected_language' in locals() else 'en'
+            )
     
-    def _handle_general_query(self, message: str, organization: Dict, query_type: str) -> str:
+    def _handle_general_query(self, message: str, organization: Dict, query_type: str, user_language: str = "en", language_confidence: float = 0.8) -> str:
         """Handle general queries without document context"""
         base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("general_assistant")
         system_prompt = self.prompt_service.create_contextual_prompt(
             base_prompt, 
             organization["name"], 
             len(organization.get("documents", [])),
-            "general"
+            "general",
+            user_language,
+            language_confidence
         )
         
         if query_type == "general":
@@ -56,7 +81,7 @@ class QueryService:
             is_document_query=False
         )
     
-    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict]) -> str:
+    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_language: str = "en", language_confidence: float = 0.8) -> str:
         """Handle document-specific queries using RAG"""
         try:
             # Ensure documents have embeddings
@@ -66,7 +91,7 @@ class QueryService:
             # Get query embedding
             query_embedding = self.openai_service.get_single_embedding(message)
             if not query_embedding:
-                return self._fallback_keyword_search(message, organization, documents, organization_id)
+                return self._fallback_keyword_search(message, organization, documents, organization_id, user_language, language_confidence)
             
             # Search for similar chunks using ChromaDB
             similar_chunks = self.embedding_service.search_similar_chunks(
@@ -77,7 +102,7 @@ class QueryService:
             
             if not similar_chunks:
                 print("No similar chunks found in ChromaDB, falling back to keyword search")
-                return self._fallback_keyword_search(message, organization, documents, organization_id)
+                return self._fallback_keyword_search(message, organization, documents, organization_id, user_language, language_confidence)
             
             # Prepare context from similar chunks
             context = self._prepare_context_from_chunks(similar_chunks)
@@ -88,7 +113,9 @@ class QueryService:
                 base_prompt,
                 organization["name"],
                 len(documents),
-                "document"
+                "document",
+                user_language,
+                language_confidence
             )
             
             return self.openai_service.generate_response(
@@ -100,9 +127,9 @@ class QueryService:
         
         except Exception as e:
             print(f"Error in document query processing: {e}")
-            return self._fallback_keyword_search(message, organization, documents, organization.get("id"))
+            return self._fallback_keyword_search(message, organization, documents, organization.get("id"), user_language, language_confidence)
     
-    def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict], organization_id: str = None) -> str:
+    def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict], organization_id: str = None, user_language: str = "en", language_confidence: float = 0.8) -> str:
         """Fallback to keyword-based search when embeddings fail"""
         print("Using fallback keyword search")
         
@@ -141,7 +168,9 @@ class QueryService:
             base_prompt,
             organization["name"],
             len(documents),
-            "document"
+            "document",
+            user_language,
+            language_confidence
         )
         
         return self.openai_service.generate_response(

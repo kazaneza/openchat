@@ -6,3 +6,4 @@ python-jose[cryptography]
 python-dotenv                              
 openai                                     
 chromadb
+langdetect
