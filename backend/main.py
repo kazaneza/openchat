@@ -209,9 +209,12 @@ async def admin_get_organizations():
     organizations = load_organizations()
     users = load_users()
     
+    print(f"Available users: {list(users.keys())}")
+    
     # Add users to each organization
     for org_id, org in organizations.items():
         org_users = [user for user in users.values() if user['organization_id'] == org_id]
+        print(f"Organization {org_id} has users: {[u['id'] for u in org_users]}")
         org['users'] = org_users
     
     return {"organizations": list(organizations.values())}
@@ -311,6 +314,7 @@ async def admin_delete_user(user_id: str):
     users = load_users()
     
     if user_id not in users:
+        print(f"User {user_id} not found. Available users: {list(users.keys())}")
         raise HTTPException(status_code=404, detail="User not found")
     
     del users[user_id]

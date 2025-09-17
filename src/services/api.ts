@@ -101,6 +101,7 @@ export const adminApi = {
   },
 
   deleteUser: async (id: string) => {
+    console.log('Deleting user with ID:', id);
     const response = await api.delete(`/admin/users/${id}`);
     return response.data;
   },

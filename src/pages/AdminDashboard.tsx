@@ -301,7 +301,8 @@ const AdminDashboard: React.FC = () => {
                           <td className="py-3 text-right">
                             <button
                               onClick={() => handleDeleteUser(user.id)}
-                              className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                              className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                              title="Delete user"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
