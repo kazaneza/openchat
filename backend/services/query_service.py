@@ -3,13 +3,15 @@ from .openai_service import OpenAIService
 from .document_service import DocumentService
 from .embedding_service import EmbeddingService
 from .vector_service import VectorService
+from .prompt_service import PromptService
 
 class QueryService:
-    def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService, vector_service: VectorService):
+    def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService, vector_service: VectorService, prompt_service: PromptService):
         self.openai_service = openai_service
         self.document_service = document_service
         self.embedding_service = embedding_service
         self.vector_service = vector_service
+        self.prompt_service = prompt_service
     
     def process_query(self, message: str, organization: Dict, user_context: Dict = None) -> str:
         """Process user query with RAG approach"""
@@ -34,7 +36,13 @@ class QueryService:
     
     def _handle_general_query(self, message: str, organization: Dict, query_type: str) -> str:
         """Handle general queries without document context"""
-        system_prompt = organization.get("prompt", "You are a helpful AI assistant.")
+        base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("general_assistant")
+        system_prompt = self.prompt_service.create_contextual_prompt(
+            base_prompt, 
+            organization["name"], 
+            len(organization.get("documents", [])),
+            "general"
+        )
         
         if query_type == "general":
             context = "This is a general query not related to specific documents."
@@ -75,7 +83,13 @@ class QueryService:
             context = self._prepare_context_from_chunks(similar_chunks)
             
             # Generate response
-            system_prompt = organization.get("prompt", "You are a helpful AI assistant.")
+            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
+            system_prompt = self.prompt_service.create_contextual_prompt(
+                base_prompt,
+                organization["name"],
+                len(documents),
+                "document"
+            )
             
             return self.openai_service.generate_response(
                 system_prompt=system_prompt,
@@ -122,7 +136,13 @@ class QueryService:
                 for chunk in top_chunks
             ])
         
-        system_prompt = organization.get("prompt", "You are a helpful AI assistant.")
+        base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
+        system_prompt = self.prompt_service.create_contextual_prompt(
+            base_prompt,
+            organization["name"],
+            len(documents),
+            "document"
+        )
         
         return self.openai_service.generate_response(
             system_prompt=system_prompt,

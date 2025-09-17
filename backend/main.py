@@ -13,6 +13,7 @@ from services.document_service import DocumentService
 from services.embedding_service import EmbeddingService
 from services.query_service import QueryService
 from services.vector_service import VectorService
+from services.prompt_service import PromptService
 from models.organization import OrganizationModel
 from models.user import UserModel
 
@@ -23,8 +24,9 @@ load_dotenv()
 openai_service = OpenAIService()
 document_service = DocumentService()
 vector_service = VectorService()
+prompt_service = PromptService()
 embedding_service = EmbeddingService(openai_service, vector_service)
-query_service = QueryService(openai_service, document_service, embedding_service, vector_service)
+query_service = QueryService(openai_service, document_service, embedding_service, vector_service, prompt_service)
 
 # Initialize models
 organization_model = OrganizationModel()
