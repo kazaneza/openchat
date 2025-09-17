@@ -46,7 +46,6 @@ const Login: React.FC = () => {
               <h1 className="text-3xl font-bold bg-gradient-to-r from-deep-blue to-slate-gray dark:from-blue-400 dark:to-slate-300 bg-clip-text text-transparent">
                 OpenChat
               </h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400">AI-Powered Organization Chat</p>
             </div>
           </div>
         </div>
@@ -54,7 +53,7 @@ const Login: React.FC = () => {
         {/* Login Form */}
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-8 border border-slate-200 dark:border-gray-700 shadow-xl">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 text-center">
-            Organization Login
+            Welcome Back
           </h2>
 
           {error && (
@@ -67,19 +66,16 @@ const Login: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Mail className="w-4 h-4 inline mr-2" />
-                Email Address
+                Email
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-deep-blue dark:focus:ring-blue-400 focus:border-transparent"
-                placeholder="Enter your email address"
+                placeholder="Enter your email"
                 required
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Enter your organization email address
-              </p>
             </div>
 
             <div>
@@ -104,9 +100,6 @@ const Login: React.FC = () => {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Enter your password
-              </p>
             </div>
 
             <button
@@ -124,16 +117,6 @@ const Login: React.FC = () => {
               )}
             </button>
           </form>
-
-          <div className="text-center mt-6">
-            <button
-              onClick={() => navigate('/admin/login')}
-              className="flex items-center justify-center space-x-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-            >
-              <Shield className="w-4 h-4" />
-              <span>Admin Portal</span>
-            </button>
-          </div>
         </div>
       </div>
     </div>
