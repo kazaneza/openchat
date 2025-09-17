@@ -1,0 +1,169 @@
+from typing import List, Dict, Optional, Tuple
+from .openai_service import OpenAIService
+from .document_service import DocumentService
+from .embedding_service import EmbeddingService
+
+class QueryService:
+    def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService):
+        self.openai_service = openai_service
+        self.document_service = document_service
+        self.embedding_service = embedding_service
+    
+    def process_query(self, message: str, organization: Dict, user_context: Dict = None) -> str:
+        """Process user query with RAG approach"""
+        try:
+            # Detect query type
+            query_type = self.openai_service.detect_query_type(message)
+            print(f"Query type detected: {query_type}")
+            
+            # Get documents
+            documents = organization.get("documents", [])
+            
+            if not documents or query_type == "general":
+                # Handle general queries or no documents
+                return self._handle_general_query(message, organization, query_type)
+            
+            # Handle document-specific queries with RAG
+            return self._handle_document_query(message, organization, documents)
+        
+        except Exception as e:
+            print(f"Error processing query: {e}")
+            return "Sorry, there was an error processing your question. Please try again."
+    
+    def _handle_general_query(self, message: str, organization: Dict, query_type: str) -> str:
+        """Handle general queries without document context"""
+        system_prompt = organization.get("prompt", "You are a helpful AI assistant.")
+        
+        if query_type == "general":
+            context = "This is a general query not related to specific documents."
+        else:
+            context = "No documents are available in this organization yet."
+        
+        return self.openai_service.generate_response(
+            system_prompt=system_prompt,
+            user_message=message,
+            context=context,
+            is_document_query=False
+        )
+    
+    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict]) -> str:
+        """Handle document-specific queries using RAG"""
+        try:
+            # Ensure documents have embeddings
+            documents = self.embedding_service.update_document_embeddings(documents)
+            
+            # Get query embedding
+            query_embedding = self.openai_service.get_single_embedding(message)
+            if not query_embedding:
+                return self._fallback_keyword_search(message, organization, documents)
+            
+            # Prepare chunks with metadata
+            chunks_with_metadata = self.document_service.prepare_chunks_with_metadata(documents)
+            
+            # Find similar chunks
+            similar_chunks = self.openai_service.find_similar_chunks(
+                query_embedding=query_embedding,
+                chunk_embeddings=chunks_with_metadata,
+                top_k=5
+            )
+            
+            if not similar_chunks:
+                return self._fallback_keyword_search(message, organization, documents)
+            
+            # Prepare context from similar chunks
+            context = self._prepare_context_from_chunks(similar_chunks)
+            
+            # Generate response
+            system_prompt = organization.get("prompt", "You are a helpful AI assistant.")
+            
+            return self.openai_service.generate_response(
+                system_prompt=system_prompt,
+                user_message=message,
+                context=context,
+                is_document_query=True
+            )
+        
+        except Exception as e:
+            print(f"Error in document query processing: {e}")
+            return self._fallback_keyword_search(message, organization, documents)
+    
+    def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict]) -> str:
+        """Fallback to keyword-based search when embeddings fail"""
+        print("Using fallback keyword search")
+        
+        # Simple keyword matching
+        query_words = set(message.lower().split())
+        relevant_chunks = []
+        
+        for doc in documents:
+            chunks = doc.get("chunks", [])
+            for i, chunk in enumerate(chunks):
+                chunk_words = set(chunk.lower().split())
+                score = len(query_words.intersection(chunk_words))
+                
+                if score > 0:
+                    relevant_chunks.append({
+                        "text": chunk,
+                        "document_name": doc["filename"],
+                        "score": score
+                    })
+        
+        # Sort by score and take top chunks
+        relevant_chunks.sort(key=lambda x: x["score"], reverse=True)
+        top_chunks = relevant_chunks[:3]
+        
+        if not top_chunks:
+            # No relevant content found
+            context = "No relevant information found in the uploaded documents."
+        else:
+            context = "\n\n---\n\n".join([
+                f"[From {chunk['document_name']}]\n{chunk['text']}"
+                for chunk in top_chunks
+            ])
+        
+        system_prompt = organization.get("prompt", "You are a helpful AI assistant.")
+        
+        return self.openai_service.generate_response(
+            system_prompt=system_prompt,
+            user_message=message,
+            context=context,
+            is_document_query=True
+        )
+    
+    def _prepare_context_from_chunks(self, similar_chunks: List[Dict]) -> str:
+        """Prepare context string from similar chunks"""
+        context_parts = []
+        
+        for chunk in similar_chunks:
+            similarity_score = chunk.get('similarity', 0)
+            document_name = chunk.get('document_name', 'Unknown Document')
+            text = chunk.get('text', '')
+            
+            context_part = f"[From {document_name} - Relevance: {similarity_score:.2f}]\n{text}"
+            context_parts.append(context_part)
+        
+        return "\n\n---\n\n".join(context_parts)
+    
+    def get_query_suggestions(self, organization: Dict) -> List[str]:
+        """Generate query suggestions based on available documents"""
+        documents = organization.get("documents", [])
+        
+        if not documents:
+            return [
+                "Hello! How can I help you today?",
+                "What can you do?",
+                "Tell me about this organization"
+            ]
+        
+        # Generate suggestions based on document content
+        suggestions = [
+            "What information is available in the uploaded documents?",
+            "Can you summarize the main topics covered?",
+            "Search for specific information in the documents",
+            f"What does the document '{documents[0]['filename']}' contain?",
+        ]
+        
+        if len(documents) > 1:
+            suggestions.append(f"Compare information between {documents[0]['filename']} and {documents[1]['filename']}")
+        
+        return suggestions

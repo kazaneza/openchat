@@ -1,42 +1,32 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
-import json
-import os
-import uuid
-from datetime import datetime
 from typing import List, Optional
-import PyPDF2
-from io import BytesIO
+from dotenv import load_dotenv
 import uvicorn
-import tiktoken
-import re
 import traceback
-import hashlib
+import os
 
-# Try to import OpenAI, handle if not available
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    print("OpenAI package not available. Install with: pip install openai")
+# Import services and models
+from services.openai_service import OpenAIService
+from services.document_service import DocumentService
+from services.embedding_service import EmbeddingService
+from services.query_service import QueryService
+from models.organization import OrganizationModel
+from models.user import UserModel
 
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI client
-client = None
-if OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY"):
-    try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        print("OpenAI client initialized successfully")
-    except Exception as e:
-        print(f"Failed to initialize OpenAI client: {e}")
-        client = None
-else:
-    print("OpenAI API key not found in environment variables")
+# Initialize services
+openai_service = OpenAIService()
+document_service = DocumentService()
+embedding_service = EmbeddingService(openai_service)
+query_service = QueryService(openai_service, document_service, embedding_service)
+
+# Initialize models
+organization_model = OrganizationModel()
+user_model = UserModel()
 
 app = FastAPI(title="PDF Chat API", version="1.0.0")
 
@@ -49,165 +39,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Data storage paths
-ORGANIZATIONS_FILE = "data/organizations.json"
-USERS_FILE = "data/users.json"
-UPLOADS_DIR = "data/uploads"
-
-# Ensure directories exist
-os.makedirs("data", exist_ok=True)
-os.makedirs(UPLOADS_DIR, exist_ok=True)
-
-def load_organizations():
-    """Load organizations from JSON file"""
-    if os.path.exists(ORGANIZATIONS_FILE):
-        with open(ORGANIZATIONS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_organizations(organizations):
-    """Save organizations to JSON file"""
-    with open(ORGANIZATIONS_FILE, 'w') as f:
-        json.dump(organizations, f, indent=2)
-
-def load_users():
-    """Load users from JSON file"""
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_users(users):
-    """Save users to JSON file"""
-    with open(USERS_FILE, 'w') as f:
-        json.dump(users, f, indent=2)
-
-def hash_password(password: str) -> str:
-    """Hash password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(password: str, hashed: str) -> bool:
-    """Verify password against hash"""
-    return hash_password(password) == hashed
-
-def chunk_text(text: str, max_tokens: int = 1000) -> List[str]:
-    """Split text into chunks that fit within token limits"""
-    try:
-        encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4 encoding
-        
-        # Split by paragraphs first
-        paragraphs = text.split('\n\n')
-        chunks = []
-        current_chunk = ""
-        
-        for paragraph in paragraphs:
-            # Check if adding this paragraph would exceed the limit
-            test_chunk = current_chunk + "\n\n" + paragraph if current_chunk else paragraph
-            token_count = len(encoding.encode(test_chunk))
-            
-            if token_count <= max_tokens:
-                current_chunk = test_chunk
-            else:
-                # Save current chunk if it has content
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                
-                # If single paragraph is too long, split it further
-                if len(encoding.encode(paragraph)) > max_tokens:
-                    # Split by sentences
-                    sentences = re.split(r'[.!?]+', paragraph)
-                    temp_chunk = ""
-                    
-                    for sentence in sentences:
-                        test_sentence = temp_chunk + sentence + "."
-                        if len(encoding.encode(test_sentence)) <= max_tokens:
-                            temp_chunk = test_sentence
-                        else:
-                            if temp_chunk:
-                                chunks.append(temp_chunk.strip())
-                            temp_chunk = sentence + "."
-                    
-                    if temp_chunk:
-                        chunks.append(temp_chunk.strip())
-                    current_chunk = ""
-                else:
-                    current_chunk = paragraph
-        
-        # Add the last chunk
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-        
-        return [chunk for chunk in chunks if chunk.strip()]
-    
-    except Exception as e:
-        # Fallback: simple character-based chunking
-        chunk_size = max_tokens * 3  # Rough estimate: 1 token ≈ 3-4 characters
-        return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-
-def find_relevant_chunks(chunks: List[str], query: str, max_chunks: int = 3) -> List[str]:
-    """Find the most relevant chunks for a query using simple keyword matching"""
-    query_words = set(query.lower().split())
-    
-    chunk_scores = []
-    for i, chunk in enumerate(chunks):
-        chunk_words = set(chunk.lower().split())
-        # Simple scoring based on word overlap
-        score = len(query_words.intersection(chunk_words))
-        chunk_scores.append((score, i, chunk))
-    
-    # Sort by score and return top chunks
-    chunk_scores.sort(key=lambda x: x[0], reverse=True)
-    return [chunk for score, i, chunk in chunk_scores[:max_chunks] if score > 0]
-
-def extract_text_from_pdf(file_content: bytes) -> str:
-    """Extract text content from PDF"""
-    try:
-        pdf_reader = PyPDF2.PdfReader(BytesIO(file_content))
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        return text
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to process PDF: {str(e)}")
-
-def generate_ai_response(system_prompt: str, user_message: str, document_context: str) -> str:
-    """Generate AI response using OpenAI GPT"""
-    try:
-        if not client:
-            return "OpenAI API key is not configured. Please set your OPENAI_API_KEY in the .env file."
-        
-        # Prepare the context with document information
-        context_prompt = f"""
-{system_prompt}
-
-Based on the following document excerpts, please answer the user's question. If the answer cannot be found in the provided documents, please say so clearly.
-
-Document Context:
-{document_context}
-"""
-
-        response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
-            messages=[
-                {"role": "system", "content": context_prompt},
-                {"role": "user", "content": user_message}
-            ],
-            max_tokens=int(os.getenv("MAX_TOKENS", "1000")),
-            temperature=float(os.getenv("TEMPERATURE", "0.7"))
-        )
-        
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"OpenAI API Error: {str(e)}")
-        traceback.print_exc()
-        return f"Sorry, there was an error processing your request: {str(e)}"
-
 # Admin endpoints
 @app.get("/api/admin/organizations")
 async def admin_get_organizations():
     """Get all organizations with users for admin"""
-    organizations = load_organizations()
-    users = load_users()
+    organizations = organization_model.load_all()
+    users = user_model.load_all()
     
     print(f"Available users: {list(users.keys())}")
     
@@ -222,48 +59,32 @@ async def admin_get_organizations():
 @app.post("/api/admin/organizations")
 async def admin_create_organization(name: str = Form(...), prompt: str = Form(...)):
     """Create a new organization (admin only)"""
-    organizations = load_organizations()
-    
-    org_id = str(uuid.uuid4())
-    organization = {
-        "id": org_id,
-        "name": name,
-        "prompt": prompt,
-        "documents": [],
-        "created_at": datetime.now().isoformat(),
-        "document_count": 0,
-        "users": []
-    }
-    
-    organizations[org_id] = organization
-    save_organizations(organizations)
+    organization = organization_model.create(name, prompt)
+    organization["users"] = []  # Add empty users list for admin response
     
     return {"organization": organization}
 
 @app.delete("/api/admin/organizations/{org_id}")
 async def admin_delete_organization(org_id: str):
     """Delete an organization and all its users (admin only)"""
-    organizations = load_organizations()
-    users = load_users()
-    
-    if org_id not in organizations:
+    organization = organization_model.get_by_id(org_id)
+    if not organization:
         raise HTTPException(status_code=404, detail="Organization not found")
     
     # Delete associated files
-    organization = organizations[org_id]
     for doc in organization["documents"]:
-        if os.path.exists(doc["file_path"]):
-            os.remove(doc["file_path"])
+        document_service.delete_document_file(doc["file_path"])
+        # Clear embeddings cache
+        embedding_service.clear_embeddings_cache(doc["id"])
     
     # Delete users belonging to this organization
+    users = user_model.load_all()
     users_to_delete = [user_id for user_id, user in users.items() if user['organization_id'] == org_id]
     for user_id in users_to_delete:
-        del users[user_id]
+        user_model.delete(user_id)
     
     # Remove organization
-    del organizations[org_id]
-    save_organizations(organizations)
-    save_users(users)
+    organization_model.delete(org_id)
     
     return {"message": "Organization and all associated users deleted successfully"}
 
@@ -276,31 +97,13 @@ async def admin_create_user(
     must_change_password: bool = Form(True)
 ):
     """Create a new user (admin only)"""
-    users = load_users()
-    organizations = load_organizations()
-    
-    # Check if organization exists
-    if organization_id not in organizations:
+    if not organization_model.get_by_id(organization_id):
         raise HTTPException(status_code=404, detail="Organization not found")
     
-    # Check if email already exists
-    for user in users.values():
-        if user['email'] == email:
-            raise HTTPException(status_code=400, detail="Email already exists")
-    
-    user_id = str(uuid.uuid4())
-    user = {
-        "id": user_id,
-        "email": email,
-        "password": hash_password(password),
-        "organization_id": organization_id,
-        "role": role,
-        "must_change_password": must_change_password,
-        "created_at": datetime.now().isoformat()
-    }
-    
-    users[user_id] = user
-    save_users(users)
+    try:
+        user = user_model.create(email, password, organization_id, role, must_change_password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
     # Return user without password
     user_response = user.copy()
@@ -311,14 +114,8 @@ async def admin_create_user(
 @app.delete("/api/admin/users/{user_id}")
 async def admin_delete_user(user_id: str):
     """Delete a user (admin only)"""
-    users = load_users()
-    
-    if user_id not in users:
-        print(f"User {user_id} not found. Available users: {list(users.keys())}")
+    if not user_model.delete(user_id):
         raise HTTPException(status_code=404, detail="User not found")
-    
-    del users[user_id]
-    save_users(users)
     
     return {"message": "User deleted successfully"}
 
@@ -326,30 +123,17 @@ async def admin_delete_user(user_id: str):
 @app.post("/api/auth/login")
 async def authenticate_user(email: str = Form(...), password: str = Form(...)):
     """Authenticate user and return organization data"""
-    users = load_users()
-    organizations = load_organizations()
-    
-    # Find user by email
-    user = None
-    for u in users.values():
-        if u['email'] == email:
-            user = u
-            break
-    
-    if not user or not verify_password(password, user['password']):
+    user = user_model.authenticate(email, password)
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # Get user's organization
-    organization = organizations.get(user['organization_id'])
+    organization = organization_model.get_by_id(user['organization_id'])
     if not organization:
         raise HTTPException(status_code=404, detail="Organization not found")
     
-    # Return user and organization data (without password)
-    user_response = user.copy()
-    del user_response['password']
-    
     return {
-        "user": user_response,
+        "user": user,
         "organization": organization
     }
 
@@ -360,26 +144,22 @@ async def change_password(
     new_password: str = Form(...)
 ):
     """Change user password"""
-    users = load_users()
-    
-    if user_id not in users:
+    user = user_model.get_by_id(user_id)
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    user = users[user_id]
-    
     # Verify current password
-    if not verify_password(current_password, user['password']):
+    if not user_model.verify_password(current_password, user['password']):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     
     # Update password and clear must_change_password flag
-    user['password'] = hash_password(new_password)
-    user['must_change_password'] = False
-    
-    users[user_id] = user
-    save_users(users)
+    updated_user = user_model.update(user_id, {
+        'password': new_password,
+        'must_change_password': False
+    })
     
     # Return user without password
-    user_response = user.copy()
+    user_response = updated_user.copy()
     del user_response['password']
     
     return {"message": "Password changed successfully", "user": user_response}
@@ -387,28 +167,13 @@ async def change_password(
 @app.get("/api/organizations")
 async def get_organizations():
     """Get all organizations"""
-    organizations = load_organizations()
+    organizations = organization_model.load_all()
     return {"organizations": list(organizations.values())}
 
 @app.post("/api/organizations")
 async def create_organization(name: str = Form(...), prompt: str = Form(...)):
     """Create a new organization"""
-    organizations = load_organizations()
-    
-    org_id = str(uuid.uuid4())
-    organization = {
-        "id": org_id,
-        "name": name,
-        "prompt": prompt,
-        "documents": [],
-        "created_at": datetime.now().isoformat(),
-        "document_count": 0,
-        "chat_count": 0,
-        "last_activity": None
-    }
-    
-    organizations[org_id] = organization
-    save_organizations(organizations)
+    organization = organization_model.create(name, prompt)
     
     return {"organization": organization}
 
@@ -418,15 +183,13 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
     print(f"Upload request - org_id: {org_id}, user_id: {user_id}")
     print(f"Number of files: {len(files)}")
     
-    organizations = load_organizations()
-    users = load_users()
-    
-    if org_id not in organizations:
+    organization = organization_model.get_by_id(org_id)
+    if not organization:
         print(f"Organization {org_id} not found")
         raise HTTPException(status_code=404, detail="Organization not found")
     
     # Verify user belongs to this organization
-    user = users.get(user_id)
+    user = user_model.get_by_id(user_id)
     print(f"User found: {user is not None}")
     if not user or user['organization_id'] != org_id:
         print(f"Access denied - user org: {user['organization_id'] if user else 'None'}, requested org: {org_id}")
@@ -445,42 +208,35 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
         
         # Extract text from PDF
         try:
-            text_content = extract_text_from_pdf(content)
+            text_content = document_service.extract_text_from_pdf(content)
             print(f"Extracted text length: {len(text_content)} characters")
         except Exception as e:
             print(f"PDF extraction error: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Failed to process PDF {file.filename}: {str(e)}")
+            raise HTTPException(status_code=400, detail=str(e))
         
-        # Save file
-        file_id = str(uuid.uuid4())
-        file_path = os.path.join(UPLOADS_DIR, f"{file_id}.pdf")
+        # Chunk the text
+        chunks = document_service.chunk_text(text_content)
+        print(f"Created {len(chunks)} chunks")
         
+        # Save document
         try:
-            with open(file_path, "wb") as f:
-                f.write(content)
-            print(f"File saved to: {file_path}")
+            document = document_service.save_document(content, file.filename, text_content, chunks)
+            print(f"Document saved: {document['id']}")
         except Exception as e:
             print(f"File save error: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
         
-        # Create document record
-        document = {
-            "id": file_id,
-            "filename": file.filename,
-            "file_path": file_path,
-            "text_content": text_content,
-            "chunks": chunk_text(text_content),  # Pre-chunk the document
-            "uploaded_at": datetime.now().isoformat(),
-            "size": len(content)
-        }
+        # Generate embeddings for the document
+        document = embedding_service.generate_embeddings_for_document(document)
         
-        organizations[org_id]["documents"].append(document)
+        # Add document to organization
+        organization_model.add_document(org_id, document)
         uploaded_docs.append(document)
         print(f"Document added: {file.filename}")
     
-    organizations[org_id]["document_count"] = len(organizations[org_id]["documents"])
-    save_organizations(organizations)
-    print(f"Upload complete. Total documents: {organizations[org_id]['document_count']}")
+    # Get updated organization
+    updated_organization = organization_model.get_by_id(org_id)
+    print(f"Upload complete. Total documents: {updated_organization['document_count']}")
     
     return {"uploaded_documents": uploaded_docs}
 
@@ -488,53 +244,20 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
 async def chat_with_documents(org_id: str, message: str = Form(...), user_id: str = Form(...)):
     """Chat with the documents in an organization"""
     try:
-        organizations = load_organizations()
-        users = load_users()
-        
-        if org_id not in organizations:
+        organization = organization_model.get_by_id(org_id)
+        if not organization:
             raise HTTPException(status_code=404, detail="Organization not found")
         
         # Verify user belongs to this organization
-        user = users.get(user_id)
+        user = user_model.get_by_id(user_id)
         if not user or user['organization_id'] != org_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        organization = organizations[org_id]
-        
-        if not organization["documents"]:
-            raise HTTPException(status_code=400, detail="No documents uploaded for this organization")
-        
-        # Collect all chunks from all documents
-        all_chunks = []
-        for doc in organization["documents"]:
-            doc_chunks = doc.get("chunks", [])
-            if not doc_chunks:  # Fallback for old documents without chunks
-                doc_chunks = chunk_text(doc["text_content"])
-            
-            # Add document context to each chunk
-            for chunk in doc_chunks:
-                all_chunks.append(f"[From {doc['filename']}]\n{chunk}")
-        
-        # Find relevant chunks for the user's question
-        relevant_chunks = find_relevant_chunks(all_chunks, message)
-        
-        if not relevant_chunks:
-            # If no relevant chunks found, use first few chunks as fallback
-            relevant_chunks = all_chunks[:3]
-        
-        # Combine relevant chunks
-        combined_context = "\n\n---\n\n".join(relevant_chunks)
-        
-        # Generate AI response using OpenAI
-        system_prompt = organization["prompt"]
-        
-        # Generate AI-powered response
-        ai_response = generate_ai_response(system_prompt, message, combined_context)
+        # Process query using the new query service
+        ai_response = query_service.process_query(message, organization, {"user_id": user_id})
         
         # Update organization stats
-        organizations[org_id]["chat_count"] = organizations[org_id].get("chat_count", 0) + 1
-        organizations[org_id]["last_activity"] = datetime.now().isoformat()
-        save_organizations(organizations)
+        organization_model.increment_chat_count(org_id)
         
         return {
             "response": ai_response,
@@ -552,71 +275,15 @@ async def chat_with_documents(org_id: str, message: str = Form(...), user_id: st
 async def public_chat_endpoint(org_id: str, message: str = Form(...)):
     """Public chat endpoint for external use"""
     try:
-        organizations = load_organizations()
-        
-        if org_id not in organizations:
+        organization = organization_model.get_by_id(org_id)
+        if not organization:
             raise HTTPException(status_code=404, detail="Organization not found")
         
-        organization = organizations[org_id]
-        
-        if not organization["documents"]:
-            # If no documents, provide a basic response
-            system_prompt = organization["prompt"]
-            ai_response = generate_ai_response(system_prompt, message, "No documents have been uploaded to this organization yet.")
-            
-            return {
-                "response": ai_response,
-                "organization": organization["name"],
-                "endpoint": f"/chat/{org_id}"
-            }
-        
-        # Collect all chunks from all documents
-        all_chunks = []
-        for doc in organization["documents"]:
-            try:
-                doc_chunks = doc.get("chunks", [])
-                if not doc_chunks and "text_content" in doc:  # Fallback for old documents without chunks
-                    doc_chunks = chunk_text(doc["text_content"])
-                
-                # Add document context to each chunk
-                for chunk in doc_chunks:
-                    if chunk.strip():  # Only add non-empty chunks
-                        all_chunks.append(f"[From {doc['filename']}]\n{chunk}")
-            except Exception as e:
-                print(f"Error processing document {doc.get('filename', 'unknown')}: {str(e)}")
-                continue
-        
-        # If no valid chunks found, use a fallback message
-        if not all_chunks:
-            system_prompt = organization["prompt"]
-            ai_response = generate_ai_response(system_prompt, message, "The documents in this organization could not be processed properly.")
-            
-            return {
-                "response": ai_response,
-                "organization": organization["name"],
-                "endpoint": f"/chat/{org_id}"
-            }
-        
-        # Find relevant chunks for the user's question
-        relevant_chunks = find_relevant_chunks(all_chunks, message)
-        
-        if not relevant_chunks:
-            # If no relevant chunks found, use first few chunks as fallback
-            relevant_chunks = all_chunks[:3]
-        
-        # Combine relevant chunks
-        combined_context = "\n\n---\n\n".join(relevant_chunks)
-        
-        # Generate AI response using OpenAI
-        system_prompt = organization["prompt"]
-        
-        # Generate AI-powered response
-        ai_response = generate_ai_response(system_prompt, message, combined_context)
+        # Process query using the new query service
+        ai_response = query_service.process_query(message, organization)
         
         # Update organization stats
-        organizations[org_id]["chat_count"] = organizations[org_id].get("chat_count", 0) + 1
-        organizations[org_id]["last_activity"] = datetime.now().isoformat()
-        save_organizations(organizations)
+        organization_model.increment_chat_count(org_id)
         
         return {
             "response": ai_response,
@@ -633,54 +300,40 @@ async def public_chat_endpoint(org_id: str, message: str = Form(...)):
 @app.get("/api/organizations/{org_id}")
 async def get_organization(org_id: str):
     """Get a specific organization"""
-    organizations = load_organizations()
-    
-    if org_id not in organizations:
+    organization = organization_model.get_by_id(org_id)
+    if not organization:
         raise HTTPException(status_code=404, detail="Organization not found")
     
-    return {"organization": organizations[org_id]}
+    return {"organization": organization}
 
 @app.delete("/api/organizations/{org_id}/documents/{doc_id}")
 async def delete_document(org_id: str, doc_id: str, user_id: str = Form(...)):
     """Delete a document from an organization"""
     print(f"Delete document request - org_id: {org_id}, doc_id: {doc_id}, user_id: {user_id}")
     
-    organizations = load_organizations()
-    users = load_users()
-    
-    if org_id not in organizations:
+    organization = organization_model.get_by_id(org_id)
+    if not organization:
         raise HTTPException(status_code=404, detail="Organization not found")
     
     # Verify user belongs to this organization
-    user = users.get(user_id)
+    user = user_model.get_by_id(user_id)
     if not user or user['organization_id'] != org_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    organization = organizations[org_id]
-    
-    # Find the document
-    doc_to_delete = None
-    for i, doc in enumerate(organization["documents"]):
-        if doc["id"] == doc_id:
-            doc_to_delete = organization["documents"].pop(i)
-            break
-    
+    # Remove document from organization
+    doc_to_delete = organization_model.remove_document(org_id, doc_id)
     if not doc_to_delete:
         raise HTTPException(status_code=404, detail="Document not found")
     
     # Delete the physical file
-    try:
-        if os.path.exists(doc_to_delete["file_path"]):
-            os.remove(doc_to_delete["file_path"])
-    except Exception as e:
-        print(f"Warning: Could not delete file {doc_to_delete['file_path']}: {str(e)}")
+    document_service.delete_document_file(doc_to_delete["file_path"])
     
-    # Update document count
-    organizations[org_id]["document_count"] = len(organization["documents"])
-    save_organizations(organizations)
+    # Clear embeddings cache
+    embedding_service.clear_embeddings_cache(doc_id)
     
     print(f"Document {doc_to_delete['filename']} deleted successfully")
     
     return {"message": "Document deleted successfully"}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -5,3 +5,5 @@ PyPDF2
 python-jose[cryptography]                  
 python-dotenv                              
 openai                                     
+scikit-learn
+numpy
