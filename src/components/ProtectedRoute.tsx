@@ -27,6 +27,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   if (currentUser?.must_change_password && location.pathname !== '/change-password') {
     return <ChangePassword />;
   }
+
   return <>{children}</>;
 };
 

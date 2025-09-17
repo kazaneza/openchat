@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { adminApi } from '../services/api';
 
 const ChangePassword: React.FC = () => {
-  const { currentUser, login, currentOrganization } = useAuth();
+  const { currentUser, login, currentOrganization, logout } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -27,29 +27,38 @@ const ChangePassword: React.FC = () => {
       return;
     }
 
+    if (newPassword === currentPassword) {
+      setError('New password must be different from current password');
+      return;
+    }
     setLoading(true);
     setError('');
 
     try {
-      // First verify current password by attempting login
-      await adminApi.authenticateUser(currentUser?.email || '', currentPassword);
+      if (!currentUser) {
+        throw new Error('No user found');
+      }
+
+      // Call the change password API
+      const response = await adminApi.changePassword(currentUser.id, currentPassword, newPassword);
       
-      // In a real implementation, you'd call an API to update the password
-      // For now, we'll simulate the password change
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Update user's must_change_password flag
-      if (currentUser && currentOrganization) {
-        const updatedUser = { ...currentUser, must_change_password: false };
+      // Update the user context with the updated user data
+      const updatedUser = { ...currentUser, must_change_password: false };
+      if (currentOrganization) {
         login(currentOrganization, updatedUser);
       }
+      
     } catch (error) {
-      setError('Current password is incorrect');
+      console.error('Password change error:', error);
+      setError('Current password is incorrect or password change failed');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleLogout = () => {
+    logout();
+  };
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -163,6 +172,14 @@ const ChangePassword: React.FC = () => {
             </button>
           </form>
 
+          <div className="text-center mt-4">
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              Sign out instead
+            </button>
+          </div>
         </div>
       </div>
     </div>
