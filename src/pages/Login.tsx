@@ -117,21 +117,6 @@ const Login: React.FC = () => {
               )}
             </button>
           </form>
-
-          <div className="text-center mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <p className="text-gray-600 dark:text-gray-300 text-sm mb-2">
-              <strong>Demo Credentials:</strong>
-            </p>
-            <p className="text-gray-600 dark:text-gray-300 text-xs">
-              You need to create a user account first through the admin panel.<br />
-              <button
-                onClick={() => navigate('/admin/login')}
-                className="text-deep-blue dark:text-blue-400 hover:underline mt-1"
-              >
-                Go to Admin Panel →
-              </button>
-            </p>
-          </div>
         </div>
       </div>
     </div>
