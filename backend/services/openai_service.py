@@ -12,7 +12,7 @@ class OpenAIService:
     def __init__(self):
         self.client = None
         self.embedding_model = "text-embedding-3-small"
-        self.chat_model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        self.chat_model = os.getenv("OPENAI_MODEL", "gpt-4o")
         self.max_tokens = int(os.getenv("MAX_TOKENS", "1000"))
         self.temperature = float(os.getenv("TEMPERATURE", "0.7"))
         

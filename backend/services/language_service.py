@@ -169,3 +169,11 @@ LANGUAGE INSTRUCTION:
         }
     
     def translate_error_message(self, error_msg: str, target_language: str) -> str:
+        """
+        Translate a generic error message into the target language
+        """
+        if target_language in self.language_patterns:
+            return self.language_patterns[target_language]['responses'].get('error', error_msg)
+        
+        # fallback to English
+        return self.language_patterns['en']['responses'].get('error', error_msg)
