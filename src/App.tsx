@@ -19,8 +19,8 @@ import OrganizationSettings from './pages/OrganizationSettings';
 function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <Router>
+      <Router>
+        <AuthProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/admin/login" element={<AdminLogin />} />
@@ -74,8 +74,8 @@ function App() {
               </ProtectedRoute>
             } />
           </Routes>
-        </Router>
-      </AuthProvider>
+        </AuthProvider>
+      </Router>
     </ThemeProvider>
   );
 }

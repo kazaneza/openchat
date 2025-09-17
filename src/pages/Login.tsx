@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Mail, Lock, Eye, EyeOff, Shield } from 'lucide-react';
+import { MessageSquare, Mail, Lock, Eye, EyeOff, Shield, Sun, Moon } from 'lucide-react';
 import { adminApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useNavigate } from 'react-router-dom';
 
 const Login: React.FC = () => {
@@ -11,6 +12,7 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -36,6 +38,16 @@ const Login: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
+        {/* Theme Toggle */}
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={toggleTheme}
+            className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-slate-200 dark:border-gray-700 rounded-xl hover:bg-white dark:hover:bg-gray-800 transition-all duration-200 text-gray-600 dark:text-gray-300"
+          >
+            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+        </div>
+
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center space-x-3 mb-4">
