@@ -6,6 +6,7 @@ from .vector_service import VectorService
 from .prompt_service import PromptService
 from .language_service import LanguageService
 from .translation_service import TranslationService
+import traceback
 
 class QueryService:
     def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService, vector_service: VectorService, prompt_service: PromptService, translation_service: TranslationService):
@@ -215,124 +216,6 @@ Instructions:
         return self.openai_service.generate_response(
             system_prompt=system_prompt,
             user_message=english_message,
-            context=context,
-            is_document_query=True
-        )
-            base_prompt, 
-            organization["name"], 
-            len(organization.get("documents", [])),
-            "general",
-            user_language,
-            language_confidence
-        )
-        
-        if query_type == "general":
-            context = "This is a general query not related to specific documents."
-        else:
-            context = "No documents are available in this organization yet."
-        
-        return self.openai_service.generate_response(
-            system_prompt=system_prompt,
-            user_message=message,
-            context=context,
-            is_document_query=False
-        )
-    
-    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_language: str = "en", language_confidence: float = 0.8) -> str:
-        """Handle document-specific queries using RAG"""
-        try:
-            # Ensure documents have embeddings
-            organization_id = organization["id"]
-            documents = self.embedding_service.update_document_embeddings(documents, organization_id)
-            
-            # Get query embedding
-            query_embedding = self.openai_service.get_single_embedding(message)
-            if not query_embedding:
-                return self._fallback_keyword_search(message, organization, documents, organization_id, user_language, language_confidence)
-            
-            # Search for similar chunks using ChromaDB
-            similar_chunks = self.embedding_service.search_similar_chunks(
-                query_embedding=query_embedding,
-                organization_id=organization_id,
-                top_k=5
-            )
-            
-            if not similar_chunks:
-                print("No similar chunks found in ChromaDB, falling back to keyword search")
-                return self._fallback_keyword_search(message, organization, documents, organization_id, user_language, language_confidence)
-            
-            # Prepare context from similar chunks
-            context = self._prepare_context_from_chunks(similar_chunks)
-            
-            # Generate response
-            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
-            system_prompt = self.prompt_service.create_contextual_prompt(
-                base_prompt,
-                organization["name"],
-                len(documents),
-                "document",
-                user_language,
-                language_confidence
-            )
-            
-            return self.openai_service.generate_response(
-                system_prompt=system_prompt,
-                user_message=message,
-                context=context,
-                is_document_query=True
-            )
-        
-        except Exception as e:
-            print(f"Error in document query processing: {e}")
-            return self._fallback_keyword_search(message, organization, documents, organization.get("id"), user_language, language_confidence)
-    
-    def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict], organization_id: str = None, user_language: str = "en", language_confidence: float = 0.8) -> str:
-        """Fallback to keyword-based search when embeddings fail"""
-        print("Using fallback keyword search")
-        
-        # Simple keyword matching
-        query_words = set(message.lower().split())
-        relevant_chunks = []
-        
-        for doc in documents:
-            chunks = doc.get("chunks", [])
-            for i, chunk in enumerate(chunks):
-                chunk_words = set(chunk.lower().split())
-                score = len(query_words.intersection(chunk_words))
-                
-                if score > 0:
-                    relevant_chunks.append({
-                        "text": chunk,
-                        "document_name": doc["filename"],
-                        "score": score
-                    })
-        
-        # Sort by score and take top chunks
-        relevant_chunks.sort(key=lambda x: x["score"], reverse=True)
-        top_chunks = relevant_chunks[:3]
-        
-        if not top_chunks:
-            # No relevant content found
-            context = "No relevant information found in the uploaded documents."
-        else:
-            context = "\n\n---\n\n".join([
-                f"[From {chunk['document_name']}]\n{chunk['text']}"
-                for chunk in top_chunks
-            ])
-        
-        base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
-        system_prompt = self.prompt_service.create_contextual_prompt(
-            base_prompt,
-            organization["name"],
-            len(documents),
-            "document",
-            user_language,
-            language_confidence
-        )
-        
-        return self.openai_service.generate_response(
-            system_prompt=system_prompt,
-            user_message=message,
             context=context,
             is_document_query=True
         )
