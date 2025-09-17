@@ -640,5 +640,37 @@ async def get_organization(org_id: str):
     
     return {"organization": organizations[org_id]}
 
+@app.delete("/api/organizations/{org_id}/documents/{doc_id}")
+async def delete_document(org_id: str, doc_id: str):
+    """Delete a document from an organization"""
+    organizations = load_organizations()
+    
+    if org_id not in organizations:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    
+    organization = organizations[org_id]
+    
+    # Find the document
+    doc_to_delete = None
+    for i, doc in enumerate(organization["documents"]):
+        if doc["id"] == doc_id:
+            doc_to_delete = organization["documents"].pop(i)
+            break
+    
+    if not doc_to_delete:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Delete the physical file
+    try:
+        if os.path.exists(doc_to_delete["file_path"]):
+            os.remove(doc_to_delete["file_path"])
+    except Exception as e:
+        print(f"Warning: Could not delete file {doc_to_delete['file_path']}: {str(e)}")
+    
+    # Update document count
+    organizations[org_id]["document_count"] = len(organization["documents"])
+    save_organizations(organizations)
+    
+    return {"message": "Document deleted successfully"}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

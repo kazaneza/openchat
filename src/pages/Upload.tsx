@@ -1,15 +1,37 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload as UploadIcon, FileText, X, Check } from 'lucide-react';
+import { Upload as UploadIcon, FileText, X, Check, Trash2, Download, Calendar } from 'lucide-react';
 import { organizationApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { Document } from '../types';
 
 const Upload: React.FC = () => {
   const { currentOrganization, login } = useAuth();
   const [files, setFiles] = useState<File[]>([]);
+  const [existingDocuments, setExistingDocuments] = useState<Document[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    if (currentOrganization) {
+      loadDocuments();
+    }
+  }, [currentOrganization]);
+
+  const loadDocuments = async () => {
+    if (!currentOrganization) return;
+    
+    try {
+      setLoading(true);
+      const orgData = await organizationApi.getById(currentOrganization.id);
+      setExistingDocuments(orgData.documents || []);
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -64,6 +86,10 @@ const Upload: React.FC = () => {
       
       setUploadComplete(true);
       setFiles([]);
+      
+      // Reload documents to show the newly uploaded ones
+      await loadDocuments();
+      
       setTimeout(() => setUploadComplete(false), 3000);
     } catch (error) {
       console.error('Failed to upload files:', error);
@@ -81,6 +107,22 @@ const Upload: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const handleDeleteDocument = async (docId: string) => {
+    if (!currentOrganization) return;
+    
+    if (window.confirm('Are you sure you want to delete this document?')) {
+      try {
+        // Note: You'll need to implement this endpoint in the backend
+        console.log('Delete document:', docId);
+        // await organizationApi.deleteDocument(currentOrganization.id, docId);
+        // await loadDocuments();
+        alert('Document deletion not yet implemented in backend');
+      } catch (error) {
+        console.error('Failed to delete document:', error);
+        alert('Failed to delete document');
+      }
+    }
+  };
   if (!currentOrganization) {
     return (
       <div className="max-w-4xl mx-auto text-center py-16">
@@ -98,9 +140,52 @@ const Upload: React.FC = () => {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Upload Documents</h1>
-        <p className="text-gray-600 dark:text-gray-300">Upload PDF documents to {currentOrganization.name}</p>
+        <p className="text-gray-600 dark:text-gray-300">
+          Upload PDF documents to {currentOrganization.name} • {existingDocuments.length} documents uploaded
+        </p>
       </div>
 
+      {/* Existing Documents */}
+      {!loading && existingDocuments.length > 0 && (
+        <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-gray-700 mb-6">
+          <div className="p-6 border-b border-slate-200 dark:border-gray-700">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Uploaded Documents</h2>
+          </div>
+          <div className="p-6">
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {existingDocuments.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                >
+                  <div className="flex items-center space-x-3">
+                    <FileText className="w-5 h-5 text-deep-blue dark:text-blue-400" />
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">{doc.filename}</p>
+                      <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
+                        <span>{formatFileSize(doc.size)}</span>
+                        <span className="flex items-center">
+                          <Calendar className="w-4 h-4 mr-1" />
+                          {new Date(doc.uploaded_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleDeleteDocument(doc.id)}
+                      className="p-2 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200"
+                      title="Delete document"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {/* File Upload Area */}
       <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-2xl border border-slate-200 dark:border-gray-700 overflow-hidden">
         <div
@@ -201,6 +286,12 @@ const Upload: React.FC = () => {
           </div>
         )}
       </div>
+
+      {loading && (
+        <div className="flex items-center justify-center py-8">
+          <div className="w-8 h-8 border-4 border-slate-200 dark:border-gray-700 border-t-deep-blue dark:border-t-blue-400 rounded-full animate-spin"></div>
+        </div>
+      )}
     </div>
   );
 };

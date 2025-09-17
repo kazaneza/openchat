@@ -27,6 +27,10 @@ export const organizationApi = {
     return response.data.organization;
   },
 
+  deleteDocument: async (orgId: string, docId: string) => {
+    const response = await api.delete(`/organizations/${orgId}/documents/${docId}`);
+    return response.data;
+  },
   uploadDocuments: async (orgId: string, files: File[]) => {
     const formData = new FormData();
     files.forEach(file => {
