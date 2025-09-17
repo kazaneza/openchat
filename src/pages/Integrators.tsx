@@ -199,30 +199,6 @@ const Integrators: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Instructions */}
-                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-                      <h3 className="font-semibold text-blue-900 dark:text-blue-300 mb-3">Integration Instructions:</h3>
-                      <div className="space-y-2 text-blue-800 dark:text-blue-400 text-sm">
-                        <p>1. Copy the chat endpoint above</p>
-                        <p>2. Contact <strong>{integrator?.vendor}</strong> or your platform administrator</p>
-                        <p>3. Provide them with the endpoint URL for webhook configuration</p>
-                        <p>4. Configure the platform to send POST requests with a "message" parameter</p>
-                      </div>
-                    </div>
-
-                    {/* Vendor Contact */}
-                    <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800">
-                      <div className="flex items-start space-x-3">
-                        <ExternalLink className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-                        <div>
-                          <h3 className="font-semibold text-yellow-900 dark:text-yellow-300 mb-2">Need Help?</h3>
-                          <p className="text-yellow-800 dark:text-yellow-400 text-sm mb-3">
-                            For complete integration setup, please contact {integrator?.vendor} support or your platform administrator. 
-                            They will help you configure the webhook and authentication settings.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="flex justify-end pt-6">
