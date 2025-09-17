@@ -12,6 +12,7 @@ from services.openai_service import OpenAIService
 from services.document_service import DocumentService
 from services.embedding_service import EmbeddingService
 from services.query_service import QueryService
+from services.vector_service import VectorService
 from models.organization import OrganizationModel
 from models.user import UserModel
 
@@ -21,8 +22,9 @@ load_dotenv()
 # Initialize services
 openai_service = OpenAIService()
 document_service = DocumentService()
-embedding_service = EmbeddingService(openai_service)
-query_service = QueryService(openai_service, document_service, embedding_service)
+vector_service = VectorService()
+embedding_service = EmbeddingService(openai_service, vector_service)
+query_service = QueryService(openai_service, document_service, embedding_service, vector_service)
 
 # Initialize models
 organization_model = OrganizationModel()
@@ -74,8 +76,11 @@ async def admin_delete_organization(org_id: str):
     # Delete associated files
     for doc in organization["documents"]:
         document_service.delete_document_file(doc["file_path"])
-        # Clear embeddings cache
-        embedding_service.clear_embeddings_cache(doc["id"])
+        # Delete embeddings
+        embedding_service.delete_document_embeddings(doc["id"])
+    
+    # Delete all organization embeddings from ChromaDB
+    embedding_service.delete_organization_embeddings(org_id)
     
     # Delete users belonging to this organization
     users = user_model.load_all()
@@ -227,7 +232,7 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
             raise HTTPException(status_code=500, detail=str(e))
         
         # Generate embeddings for the document
-        document = embedding_service.generate_embeddings_for_document(document)
+        document = embedding_service.generate_embeddings_for_document(document, org_id)
         
         # Add document to organization
         organization_model.add_document(org_id, document)
@@ -328,8 +333,8 @@ async def delete_document(org_id: str, doc_id: str, user_id: str = Form(...)):
     # Delete the physical file
     document_service.delete_document_file(doc_to_delete["file_path"])
     
-    # Clear embeddings cache
-    embedding_service.clear_embeddings_cache(doc_id)
+    # Delete embeddings from ChromaDB and cache
+    embedding_service.delete_document_embeddings(doc_id)
     
     print(f"Document {doc_to_delete['filename']} deleted successfully")
     

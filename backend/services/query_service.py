@@ -2,12 +2,14 @@ from typing import List, Dict, Optional, Tuple
 from .openai_service import OpenAIService
 from .document_service import DocumentService
 from .embedding_service import EmbeddingService
+from .vector_service import VectorService
 
 class QueryService:
-    def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService):
+    def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService, vector_service: VectorService):
         self.openai_service = openai_service
         self.document_service = document_service
         self.embedding_service = embedding_service
+        self.vector_service = vector_service
     
     def process_query(self, message: str, organization: Dict, user_context: Dict = None) -> str:
         """Process user query with RAG approach"""
@@ -50,25 +52,24 @@ class QueryService:
         """Handle document-specific queries using RAG"""
         try:
             # Ensure documents have embeddings
-            documents = self.embedding_service.update_document_embeddings(documents)
+            organization_id = organization["id"]
+            documents = self.embedding_service.update_document_embeddings(documents, organization_id)
             
             # Get query embedding
             query_embedding = self.openai_service.get_single_embedding(message)
             if not query_embedding:
-                return self._fallback_keyword_search(message, organization, documents)
+                return self._fallback_keyword_search(message, organization, documents, organization_id)
             
-            # Prepare chunks with metadata
-            chunks_with_metadata = self.document_service.prepare_chunks_with_metadata(documents)
-            
-            # Find similar chunks
-            similar_chunks = self.openai_service.find_similar_chunks(
+            # Search for similar chunks using ChromaDB
+            similar_chunks = self.embedding_service.search_similar_chunks(
                 query_embedding=query_embedding,
-                chunk_embeddings=chunks_with_metadata,
+                organization_id=organization_id,
                 top_k=5
             )
             
             if not similar_chunks:
-                return self._fallback_keyword_search(message, organization, documents)
+                print("No similar chunks found in ChromaDB, falling back to keyword search")
+                return self._fallback_keyword_search(message, organization, documents, organization_id)
             
             # Prepare context from similar chunks
             context = self._prepare_context_from_chunks(similar_chunks)
@@ -85,9 +86,9 @@ class QueryService:
         
         except Exception as e:
             print(f"Error in document query processing: {e}")
-            return self._fallback_keyword_search(message, organization, documents)
+            return self._fallback_keyword_search(message, organization, documents, organization.get("id"))
     
-    def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict]) -> str:
+    def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict], organization_id: str = None) -> str:
         """Fallback to keyword-based search when embeddings fail"""
         print("Using fallback keyword search")
         
@@ -137,9 +138,10 @@ class QueryService:
         for chunk in similar_chunks:
             similarity_score = chunk.get('similarity', 0)
             document_name = chunk.get('document_name', 'Unknown Document')
+            chunk_index = chunk.get('chunk_index', 0)
             text = chunk.get('text', '')
             
-            context_part = f"[From {document_name} - Relevance: {similarity_score:.2f}]\n{text}"
+            context_part = f"[From {document_name} (chunk {chunk_index + 1}) - Relevance: {similarity_score:.2f}]\n{text}"
             context_parts.append(context_part)
         
         return "\n\n---\n\n".join(context_parts)
