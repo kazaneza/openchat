@@ -24,3 +24,10 @@ dist-ssr
 *.sw?
 .env
 backend/__pycache__
+
+# Ignore all data in backend/data
+backend/data/
+
+# Ignore all __pycache__ folders
+**/__pycache__/
+
