@@ -90,25 +90,13 @@ class OpenAIService:
             return []
     
     def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True, user_language: str = "en") -> str:
-        """Generate AI response using OpenAI GPT with language enforcement"""
+        """Generate AI response using OpenAI GPT with natural language matching"""
         if not self.client:
             return "OpenAI API key is not configured. Please set your OPENAI_API_KEY in the .env file."
         
         try:
-            # Add critical language enforcement to system prompt
-            language_names = {
-                'rw': 'Kinyarwanda',
-                'fr': 'French', 
-                'sw': 'Swahili',
-                'en': 'English',
-                'es': 'Spanish',
-                'de': 'German',
-                'it': 'Italian',
-                'pt': 'Portuguese'
-            }
-            
-            language_name = language_names.get(user_language, user_language)
-            language_instruction = f"\n\nCRITICAL: You MUST respond in {language_name} ({user_language}). Do not use any other language."
+            # Simple instruction to match user's language naturally
+            language_instruction = "\n\nIMPORTANT: Always respond in the same language as the user's message. Match their language naturally."
             
             # Use the provided system prompt with language enforcement
             final_system_prompt = f"{system_prompt}{language_instruction}"

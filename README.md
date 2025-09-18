@@ -6,12 +6,13 @@ An AI-powered organization chat platform built with FastAPI and React that allow
 
 🏢 **Organization Login**: Secure organization-based authentication system
 - 📄 **PDF Processing**: Upload and process multiple PDF documents
-- 🤖 **AI-Powered Chat**: Chat with your documents using OpenAI GPT-4
+- 🤖 **AI-Powered Chat**: Chat with your documents using OpenAI GPT-4 with natural multilingual support
 🎨 **Beautiful UI**: Modern dark/light themed interface with glass-morphism effects
 - 💾 **JSON Storage**: Simple file-based storage for organizations and metadata
 - 🔒 **Custom Prompts**: Configure custom system prompts for each organization
 🔗 **Multi-Platform Integration**: Connect to Teams, Facebook, Slack, WhatsApp, Instagram, and Twitter
 ⚙️ **Organization Settings**: Manage chat endpoints and system prompts
+🌍 **Natural Multilingual**: GPT automatically detects and responds in the user's language
 
 ## Setup
 

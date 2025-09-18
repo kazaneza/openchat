@@ -14,8 +14,6 @@ from services.embedding_service import EmbeddingService
 from services.query_service import QueryService
 from services.vector_service import VectorService
 from services.prompt_service import PromptService
-from services.language_service import LanguageService
-from services.translation_service import TranslationService
 from models.organization import OrganizationModel
 from models.user import UserModel
 
@@ -27,10 +25,8 @@ openai_service = OpenAIService()
 document_service = DocumentService()
 vector_service = VectorService()
 prompt_service = PromptService()
-language_service = LanguageService()
-translation_service = TranslationService(openai_service)
 embedding_service = EmbeddingService(openai_service, vector_service)
-query_service = QueryService(openai_service, document_service, embedding_service, vector_service, prompt_service, translation_service)
+query_service = QueryService(openai_service, document_service, embedding_service, vector_service, prompt_service)
 
 # Initialize models
 organization_model = OrganizationModel()
