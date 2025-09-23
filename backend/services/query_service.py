@@ -6,6 +6,36 @@ from .vector_service import VectorService
 from .prompt_service import PromptService
 import traceback
 
+class ConversationContext:
+    def __init__(self):
+        self.conversations = {}  # org_id -> list of messages
+        self.max_context_length = 10  # Keep last 10 exchanges
+    
+    def add_message(self, org_id: str, user_message: str, ai_response: str):
+        if org_id not in self.conversations:
+            self.conversations[org_id] = []
+        
+        self.conversations[org_id].append({
+            'user': user_message,
+            'assistant': ai_response,
+            'timestamp': traceback.time.time() if hasattr(traceback, 'time') else 0
+        })
+        
+        # Keep only recent messages
+        if len(self.conversations[org_id]) > self.max_context_length:
+            self.conversations[org_id] = self.conversations[org_id][-self.max_context_length:]
+    
+    def get_context(self, org_id: str) -> str:
+        if org_id not in self.conversations or not self.conversations[org_id]:
+            return ""
+        
+        context_parts = []
+        for exchange in self.conversations[org_id][-5:]:  # Last 5 exchanges
+            context_parts.append(f"User previously asked: {exchange['user']}")
+            context_parts.append(f"You responded: {exchange['assistant']}")
+        
+        return "\n".join(context_parts)
+
 class QueryService:
     def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService, vector_service: VectorService, prompt_service: PromptService):
         self.openai_service = openai_service
@@ -13,6 +43,7 @@ class QueryService:
         self.embedding_service = embedding_service
         self.vector_service = vector_service
         self.prompt_service = prompt_service
+        self.conversation_context = ConversationContext()
     
     def process_query(self, message: str, organization: Dict, user_context: Dict = None) -> str:
         """Process user query with RAG approach - GPT handles language naturally"""
@@ -27,10 +58,15 @@ class QueryService:
             # Process the query
             if not documents or query_type == "general":
                 # Handle general queries or no documents
-                response = self._handle_general_query(message, organization, query_type)
+                response = self._handle_general_query(message, organization, query_type, user_context)
             else:
                 # Handle document-specific queries with RAG
-                response = self._handle_document_query(message, organization, documents)
+                response = self._handle_document_query(message, organization, documents, user_context)
+            
+            # Store conversation context
+            org_id = organization.get("id")
+            if org_id:
+                self.conversation_context.add_message(org_id, message, response)
             
             return response
         
@@ -39,7 +75,7 @@ class QueryService:
             traceback.print_exc()
             return "Sorry, there was an error processing your question. Please try again."
     
-    def _handle_general_query(self, message: str, organization: Dict, query_type: str) -> str:
+    def _handle_general_query(self, message: str, organization: Dict, query_type: str, user_context: Dict = None) -> str:
         """Handle general queries without document context"""
         base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("general_assistant")
         
@@ -51,6 +87,11 @@ class QueryService:
             context_type="general"
         )
         
+        # Add conversation context
+        conversation_context = self.conversation_context.get_context(organization.get("id", ""))
+        if conversation_context:
+            system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
+        
         return self.openai_service.generate_response(
             system_prompt=system_prompt,
             user_message=message,
@@ -58,7 +99,7 @@ class QueryService:
             is_document_query=False
         )
     
-    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict]) -> str:
+    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None) -> str:
         """Handle document-specific queries using RAG"""
         try:
             # Ensure documents have embeddings
@@ -92,6 +133,16 @@ class QueryService:
                 document_count=len(documents),
                 context_type="document"
             )
+            
+            # Add conversation context
+            conversation_context = self.conversation_context.get_context(organization.get("id", ""))
+            if conversation_context:
+                system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
+            
+            # Add conversation context
+            conversation_context = self.conversation_context.get_context(organization_id)
+            if conversation_context:
+                system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
             
             return self.openai_service.generate_response(
                 system_prompt=system_prompt,

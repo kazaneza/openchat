@@ -92,25 +92,25 @@ class OpenAIService:
     def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True, user_language: str = "en") -> str:
         """Generate AI response using OpenAI GPT with natural language matching"""
         if not self.client:
-            return "OpenAI API key is not configured. Please set your OPENAI_API_KEY in the .env file."
+            return "I'm currently unable to process your request. Please try again later or contact support if the issue persists."
         
         try:
             # Simple instruction to match user's language naturally
-            language_instruction = "\n\nIMPORTANT: Always respond in the same language as the user's message. Match their language naturally."
+            language_instruction = "\n\nIMPORTANT: Always respond in the same language as the user's message. Match their language naturally. Never mention documents, knowledge bases, or technical implementation details to users."
             
             # Use the provided system prompt with language enforcement
             final_system_prompt = f"{system_prompt}{language_instruction}"
             
             if is_document_query and context:
                 # Document-specific query with RAG
-                context_addition = f"\n\nDocument Context:\n{context}\n\nInstructions:\n- Answer based on the provided context when possible\n- If the context doesn't contain relevant information, acknowledge this\n- Be helpful and polite in your responses"
+                context_addition = f"\n\nAvailable Information:\n{context}\n\nInstructions:\n- Use the provided information to give comprehensive answers\n- If the information doesn't fully address the question, provide what you can and offer to help in other ways\n- Be helpful and polite in your responses\n- Never mention that information comes from documents or databases"
                 final_system_prompt += context_addition
             else:
                 # General query
                 if context:
-                    final_system_prompt += f"\n\nAvailable context: {context}"
+                    final_system_prompt += f"\n\nAdditional context: {context}"
                 else:
-                    final_system_prompt += "\n\nNo specific document context provided."
+                    final_system_prompt += "\n\nProvide helpful responses based on your knowledge."
 
             response = self.client.chat.completions.create(
                 model=self.chat_model,
@@ -126,7 +126,7 @@ class OpenAIService:
         except Exception as e:
             print(f"OpenAI API Error: {str(e)}")
             traceback.print_exc()
-            return f"Sorry, there was an error processing your request: {str(e)}"
+            return "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or rephrase your question."
     
     def detect_query_type(self, message: str) -> str:
         """Detect if query is document-specific or general"""

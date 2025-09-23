@@ -35,7 +35,7 @@ class OrganizationModel:
         organization = {
             "id": org_id,
             "name": name,
-            "prompt": prompt,
+            "prompt": prompt or "You are a helpful AI assistant with comprehensive knowledge about this organization. Provide accurate, helpful responses while maintaining a professional and friendly tone. Always respond in the same language as the user's question. Remember previous conversation context to provide better assistance.",
             "documents": [],
             "created_at": datetime.now().isoformat(),
             "document_count": 0,
