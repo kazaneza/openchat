@@ -37,7 +37,7 @@ app = FastAPI(title="PDF Chat API", version="1.0.0")
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://localhost:5173"],  # Vite dev server (HTTP and HTTPS)
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
