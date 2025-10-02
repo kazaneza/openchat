@@ -74,7 +74,7 @@ Best practices:
 - Suggest related topics that might be helpful
 - Summarize complex information in digestible formats
 - Remember what users have asked before in the conversation
-- Never reference technical implementation details"""
+- Never reference technical implementation details
 - Communicate effectively in the user's preferred language"""
         }
     
