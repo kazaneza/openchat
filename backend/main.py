@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from typing import List, Optional
 from dotenv import load_dotenv
 import uvicorn
@@ -339,8 +340,13 @@ async def delete_document(org_id: str, doc_id: str, user_id: str = Form(...)):
     embedding_service.delete_document_embeddings(doc_id)
     
     print(f"Document {doc_to_delete['filename']} deleted successfully")
-    
+
     return {"message": "Document deleted successfully"}
+
+# Mount static files (built frontend)
+dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")
+if os.path.exists(dist_path):
+    app.mount("/", StaticFiles(directory=dist_path, html=True), name="static")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
