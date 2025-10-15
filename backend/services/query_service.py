@@ -6,6 +6,7 @@ from .vector_service import VectorService
 from .prompt_service import PromptService
 from .retrieval_service import RetrievalService
 from .query_understanding_service import QueryUnderstandingService
+from .conversation_context_service import ConversationContextService
 from models.conversation import ConversationModel
 import traceback
 
@@ -19,6 +20,7 @@ class QueryService:
         self.conversation_model = ConversationModel()
         self.retrieval_service = RetrievalService()
         self.query_understanding = QueryUnderstandingService()
+        self.context_service = ConversationContextService()
 
     def process_query(self, message: str, organization: Dict, user_context: Dict = None, conversation_id: str = None) -> Dict:
         """Process user query with enhanced understanding and RAG"""
@@ -29,7 +31,7 @@ class QueryService:
             # Get conversation history for context
             conversation_history = []
             if conversation_id:
-                messages = self.conversation_model.get_messages(conversation_id, limit=10)
+                messages = self.conversation_model.get_messages(conversation_id, limit=20)
                 conversation_history = messages
 
             # Analyze query with enhanced understanding
@@ -43,6 +45,26 @@ class QueryService:
             print(f"Query Analysis: Intent={query_analysis['intent']['primary_intent']}, "
                   f"Follow-up={query_analysis['follow_up']['is_follow_up']}, "
                   f"Ambiguous={query_analysis['ambiguity']['is_ambiguous']}")
+
+            # Build structured conversation context
+            conversation_context_data = self.context_service.get_relevant_context_for_query(
+                messages=conversation_history,
+                current_query=message,
+                query_intent=query_analysis['intent']['primary_intent']
+            )
+
+            print(f"Context: {conversation_context_data['message_count']} msgs, "
+                  f"References: {conversation_context_data['references']['has_references']}, "
+                  f"Needs summary: {conversation_context_data['needs_summarization']}")
+
+            # Generate conversation summary if needed
+            if conversation_context_data['needs_summarization']:
+                summary = self.context_service.summarize_conversation(
+                    conversation_history,
+                    self.openai_service
+                )
+                conversation_context_data['ai_summary'] = summary
+                print(f"Generated summary: {summary[:100]}...")
 
             # Check if clarification is needed
             if query_analysis.get('needs_clarification'):
@@ -79,17 +101,18 @@ class QueryService:
                     metadata=self.query_understanding.get_query_metadata(query_analysis)
                 )
 
-            # Use enhanced query if it's a follow-up
-            query_to_process = query_analysis.get('enhanced_query', message)
-            print(f"Processing query: {query_to_process[:100]}...")
+            # Enhance query with context resolution
+            query_to_process = self.context_service.enhance_query_with_context(
+                message,
+                conversation_context_data
+            )
+            print(f"Enhanced query: {query_to_process[:150]}...")
 
-            # Get conversation context if available
-            conversation_context = ""
-            if conversation_id:
-                conversation_context = self.conversation_model.get_conversation_context(
-                    conversation_id,
-                    max_messages=10
-                )
+            # Prepare structured conversation context for LLM
+            conversation_context = self.context_service.prepare_context_for_llm(
+                conversation_context_data,
+                include_summary=conversation_context_data.get('needs_summarization', False)
+            )
 
             # Process the query
             sources = []
@@ -279,13 +302,17 @@ class QueryService:
                 context_type="document"
             )
 
-            # Add conversation context
+            # Add structured conversation context
             if conversation_context:
-                system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
+                system_prompt += f"\n\n=== Conversation Context ===\n{conversation_context}"
 
-            # Add retrieval quality info to help AI assess confidence
-            retrieval_info = f"\n\nRetrieval Info: Found {len(final_results)} relevant passages with average relevance of {confidence_score:.2f}. Query complexity: {complexity_analysis['complexity_level']}. Intent: {query_analysis['intent']['primary_intent']}."
+            # Add retrieval quality info
+            retrieval_info = f"\n\n=== Retrieval Metadata ===\nFound {len(final_results)} relevant passages (avg relevance: {confidence_score:.2f})\nQuery complexity: {complexity_analysis['complexity_level']}\nIntent: {query_analysis['intent']['primary_intent']}\nIs follow-up: {query_analysis.get('follow_up', {}).get('is_follow_up', False)}"
             system_prompt += retrieval_info
+
+            # Add reference resolution guidance if needed
+            if query_analysis.get('follow_up', {}).get('is_follow_up'):
+                system_prompt += "\n\nNote: This is a follow-up question. Use the conversation context to understand references like 'it', 'that', 'the document', etc."
 
             response = self.openai_service.generate_response(
                 system_prompt=system_prompt,
