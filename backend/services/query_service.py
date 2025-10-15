@@ -4,37 +4,8 @@ from .document_service import DocumentService
 from .embedding_service import EmbeddingService
 from .vector_service import VectorService
 from .prompt_service import PromptService
+from models.conversation import ConversationModel
 import traceback
-
-class ConversationContext:
-    def __init__(self):
-        self.conversations = {}  # org_id -> list of messages
-        self.max_context_length = 10  # Keep last 10 exchanges
-    
-    def add_message(self, org_id: str, user_message: str, ai_response: str):
-        if org_id not in self.conversations:
-            self.conversations[org_id] = []
-        
-        self.conversations[org_id].append({
-            'user': user_message,
-            'assistant': ai_response,
-            'timestamp': traceback.time.time() if hasattr(traceback, 'time') else 0
-        })
-        
-        # Keep only recent messages
-        if len(self.conversations[org_id]) > self.max_context_length:
-            self.conversations[org_id] = self.conversations[org_id][-self.max_context_length:]
-    
-    def get_context(self, org_id: str) -> str:
-        if org_id not in self.conversations or not self.conversations[org_id]:
-            return ""
-        
-        context_parts = []
-        for exchange in self.conversations[org_id][-5:]:  # Last 5 exchanges
-            context_parts.append(f"User previously asked: {exchange['user']}")
-            context_parts.append(f"You responded: {exchange['assistant']}")
-        
-        return "\n".join(context_parts)
 
 class QueryService:
     def __init__(self, openai_service: OpenAIService, document_service: DocumentService, embedding_service: EmbeddingService, vector_service: VectorService, prompt_service: PromptService):
@@ -43,42 +14,102 @@ class QueryService:
         self.embedding_service = embedding_service
         self.vector_service = vector_service
         self.prompt_service = prompt_service
-        self.conversation_context = ConversationContext()
-    
-    def process_query(self, message: str, organization: Dict, user_context: Dict = None) -> str:
+        self.conversation_model = ConversationModel()
+
+    def process_query(self, message: str, organization: Dict, user_context: Dict = None, conversation_id: str = None) -> Dict:
         """Process user query with RAG approach - GPT handles language naturally"""
         try:
-            # Process query using RAG - GPT will handle language matching naturally
+            org_id = organization.get("id")
+            user_id = user_context.get("user_id") if user_context else None
+
+            # Create or get conversation
+            if not conversation_id and user_id:
+                conversation = self.conversation_model.create_conversation(
+                    organization_id=org_id,
+                    user_id=user_id,
+                    title=message[:50] + "..." if len(message) > 50 else message
+                )
+                conversation_id = conversation["id"]
+            elif conversation_id:
+                conversation = self.conversation_model.get_conversation(conversation_id)
+            else:
+                conversation = None
+
+            # Add user message to conversation
+            if conversation_id:
+                self.conversation_model.add_message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=message
+                )
+
+            # Process query using RAG
             query_type = self.openai_service.detect_query_type(message)
             print(f"Query type detected: {query_type}")
-            
+
             # Get documents
             documents = organization.get("documents", [])
-            
+
+            # Get conversation context if available
+            conversation_context = ""
+            if conversation_id:
+                conversation_context = self.conversation_model.get_conversation_context(
+                    conversation_id,
+                    max_messages=10
+                )
+
             # Process the query
+            sources = []
+            confidence_score = 0.0
+
             if not documents or query_type == "general":
                 # Handle general queries or no documents
-                response = self._handle_general_query(message, organization, query_type, user_context)
+                response = self._handle_general_query(
+                    message, organization, query_type, user_context, conversation_context
+                )
+                confidence_score = 0.7
             else:
                 # Handle document-specific queries with RAG
-                response = self._handle_document_query(message, organization, documents, user_context)
-            
-            # Store conversation context
-            org_id = organization.get("id")
-            if org_id:
-                self.conversation_context.add_message(org_id, message, response)
-            
-            return response
-        
+                response, sources, confidence_score = self._handle_document_query(
+                    message, organization, documents, user_context, conversation_context
+                )
+
+            # Add assistant response to conversation
+            if conversation_id:
+                self.conversation_model.add_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=response,
+                    metadata={
+                        "query_type": query_type,
+                        "sources": sources,
+                        "confidence_score": confidence_score
+                    }
+                )
+
+            return {
+                "response": response,
+                "conversation_id": conversation_id,
+                "query_type": query_type,
+                "sources": sources,
+                "confidence_score": confidence_score
+            }
+
         except Exception as e:
             print(f"Error processing query: {e}")
             traceback.print_exc()
-            return "Sorry, there was an error processing your question. Please try again."
-    
-    def _handle_general_query(self, message: str, organization: Dict, query_type: str, user_context: Dict = None) -> str:
+            return {
+                "response": "Sorry, there was an error processing your question. Please try again.",
+                "conversation_id": conversation_id if 'conversation_id' in locals() else None,
+                "query_type": "error",
+                "sources": [],
+                "confidence_score": 0.0
+            }
+
+    def _handle_general_query(self, message: str, organization: Dict, query_type: str, user_context: Dict = None, conversation_context: str = "") -> str:
         """Handle general queries without document context"""
         base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("general_assistant")
-        
+
         # Create contextual prompt
         system_prompt = self.prompt_service.create_contextual_prompt(
             base_prompt=base_prompt,
@@ -86,45 +117,52 @@ class QueryService:
             document_count=len(organization.get("documents", [])),
             context_type="general"
         )
-        
+
         # Add conversation context
-        conversation_context = self.conversation_context.get_context(organization.get("id", ""))
         if conversation_context:
             system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
-        
+
         return self.openai_service.generate_response(
             system_prompt=system_prompt,
             user_message=message,
             context="",
             is_document_query=False
         )
-    
-    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None) -> str:
-        """Handle document-specific queries using RAG"""
+
+    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "") -> Tuple[str, List[Dict], float]:
+        """Handle document-specific queries using RAG - returns (response, sources, confidence)"""
         try:
             # Ensure documents have embeddings
             organization_id = organization["id"]
             documents = self.embedding_service.update_document_embeddings(documents, organization_id)
-            
+
             # Get query embedding
             query_embedding = self.openai_service.get_single_embedding(message)
             if not query_embedding:
-                return self._fallback_keyword_search(message, organization, documents, organization_id)
-            
+                response = self._fallback_keyword_search(message, organization, documents, organization_id)
+                return response, [], 0.3
+
             # Search for similar chunks using ChromaDB
             similar_chunks = self.embedding_service.search_similar_chunks(
                 query_embedding=query_embedding,
                 organization_id=organization_id,
                 top_k=5
             )
-            
+
             if not similar_chunks:
                 print("No similar chunks found in ChromaDB, falling back to keyword search")
-                return self._fallback_keyword_search(message, organization, documents, organization_id)
-            
+                response = self._fallback_keyword_search(message, organization, documents, organization_id)
+                return response, [], 0.3
+
+            # Extract sources from similar chunks
+            sources = self._extract_sources(similar_chunks)
+
+            # Calculate average confidence score
+            confidence_score = sum(chunk.get('similarity', 0) for chunk in similar_chunks) / len(similar_chunks) if similar_chunks else 0
+
             # Prepare context from similar chunks
             context = self._prepare_context_from_chunks(similar_chunks)
-            
+
             # Generate response
             base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
             system_prompt = self.prompt_service.create_contextual_prompt(
@@ -133,53 +171,85 @@ class QueryService:
                 document_count=len(documents),
                 context_type="document"
             )
-            
+
             # Add conversation context
-            conversation_context = self.conversation_context.get_context(organization.get("id", ""))
             if conversation_context:
                 system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
-            
-            # Add conversation context
-            conversation_context = self.conversation_context.get_context(organization_id)
-            if conversation_context:
-                system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
-            
-            return self.openai_service.generate_response(
+
+            response = self.openai_service.generate_response(
                 system_prompt=system_prompt,
                 user_message=message,
                 context=context,
                 is_document_query=True
             )
-        
+
+            return response, sources, confidence_score
+
         except Exception as e:
             print(f"Error in document query processing: {e}")
-            return self._fallback_keyword_search(message, organization, documents, organization.get("id"))
-    
+            response = self._fallback_keyword_search(message, organization, documents, organization.get("id"))
+            return response, [], 0.3
+
+    def _extract_sources(self, similar_chunks: List[Dict]) -> List[Dict]:
+        """Extract source citations from similar chunks"""
+        sources = []
+        seen_docs = set()
+
+        for chunk in similar_chunks:
+            doc_id = chunk.get('document_id')
+            if doc_id not in seen_docs:
+                seen_docs.add(doc_id)
+
+                pages = chunk.get('pages', [])
+                page_display = ""
+                if pages:
+                    if len(pages) == 1:
+                        page_display = f"page {pages[0]}"
+                    else:
+                        page_display = f"pages {pages[0]}-{pages[-1]}"
+
+                sources.append({
+                    "document_id": doc_id,
+                    "document_name": chunk.get('document_name', 'Unknown Document'),
+                    "pages": pages,
+                    "page_display": page_display,
+                    "similarity": round(chunk.get('similarity', 0), 2),
+                    "chunk_preview": chunk.get('text', '')[:200] + "..." if len(chunk.get('text', '')) > 200 else chunk.get('text', '')
+                })
+
+        return sources
+
     def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict], organization_id: str = None) -> str:
         """Fallback to keyword-based search when embeddings fail"""
         print("Using fallback keyword search")
-        
+
         # Simple keyword matching
         query_words = set(message.lower().split())
         relevant_chunks = []
-        
+
         for doc in documents:
             chunks = doc.get("chunks", [])
             for i, chunk in enumerate(chunks):
-                chunk_words = set(chunk.lower().split())
+                # Handle both old and new chunk formats
+                if isinstance(chunk, dict):
+                    chunk_text = chunk.get("text", "")
+                else:
+                    chunk_text = str(chunk)
+
+                chunk_words = set(chunk_text.lower().split())
                 score = len(query_words.intersection(chunk_words))
-                
+
                 if score > 0:
                     relevant_chunks.append({
-                        "text": chunk,
+                        "text": chunk_text,
                         "document_name": doc["filename"],
                         "score": score
                     })
-        
+
         # Sort by score and take top chunks
         relevant_chunks.sort(key=lambda x: x["score"], reverse=True)
         top_chunks = relevant_chunks[:3]
-        
+
         if not top_chunks:
             # No relevant content found
             context = "No relevant information found in the uploaded documents."
@@ -188,7 +258,7 @@ class QueryService:
                 f"[From {chunk['document_name']}]\n{chunk['text']}"
                 for chunk in top_chunks
             ])
-        
+
         base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
         system_prompt = self.prompt_service.create_contextual_prompt(
             base_prompt=base_prompt,
@@ -196,40 +266,48 @@ class QueryService:
             document_count=len(documents),
             context_type="document"
         )
-        
+
         return self.openai_service.generate_response(
             system_prompt=system_prompt,
             user_message=message,
             context=context,
             is_document_query=True
         )
-    
+
     def _prepare_context_from_chunks(self, similar_chunks: List[Dict]) -> str:
-        """Prepare context string from similar chunks"""
+        """Prepare context string from similar chunks with source information"""
         context_parts = []
-        
+
         for chunk in similar_chunks:
             similarity_score = chunk.get('similarity', 0)
             document_name = chunk.get('document_name', 'Unknown Document')
             chunk_index = chunk.get('chunk_index', 0)
+            pages = chunk.get('pages', [])
             text = chunk.get('text', '')
-            
-            context_part = f"[From {document_name} (chunk {chunk_index + 1}) - Relevance: {similarity_score:.2f}]\n{text}"
+
+            page_info = ""
+            if pages:
+                if len(pages) == 1:
+                    page_info = f", Page {pages[0]}"
+                else:
+                    page_info = f", Pages {pages[0]}-{pages[-1]}"
+
+            context_part = f"[Source: {document_name}{page_info} - Relevance: {similarity_score:.2f}]\n{text}"
             context_parts.append(context_part)
-        
+
         return "\n\n---\n\n".join(context_parts)
-    
+
     def get_query_suggestions(self, organization: Dict) -> List[str]:
         """Generate query suggestions based on available documents"""
         documents = organization.get("documents", [])
-        
+
         if not documents:
             return [
                 "Hello! How can I help you today?",
                 "What can you do?",
                 "Tell me about this organization"
             ]
-        
+
         # Generate suggestions based on document content
         suggestions = [
             "What information is available in the uploaded documents?",
@@ -237,8 +315,8 @@ class QueryService:
             "Search for specific information in the documents",
             f"What does the document '{documents[0]['filename']}' contain?",
         ]
-        
+
         if len(documents) > 1:
             suggestions.append(f"Compare information between {documents[0]['filename']} and {documents[1]['filename']}")
-        
+
         return suggestions

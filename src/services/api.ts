@@ -61,18 +61,58 @@ export const organizationApi = {
     return response.data;
   },
 
-  chat: async (orgId: string, message: string) => {
+  chat: async (orgId: string, message: string, conversationId?: string) => {
     const formData = new FormData();
     formData.append('message', message);
-    
+
     // Add user ID for authentication
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
     if (currentUser.id) {
       formData.append('user_id', currentUser.id);
     }
-    
+
+    // Add conversation ID if provided
+    if (conversationId) {
+      formData.append('conversation_id', conversationId);
+    }
+
     const response = await api.post(`/organizations/${orgId}/chat`, formData);
     return response.data;
+  },
+};
+
+export const conversationApi = {
+  getUserConversations: async (userId: string, orgId: string) => {
+    const response = await api.get(`/conversations/${userId}`, {
+      params: { org_id: orgId }
+    });
+    return response.data.conversations;
+  },
+
+  getConversationMessages: async (conversationId: string, userId: string) => {
+    const response = await api.get(`/conversations/${conversationId}/messages`, {
+      params: { user_id: userId }
+    });
+    return response.data;
+  },
+
+  deleteConversation: async (conversationId: string, userId: string) => {
+    const formData = new FormData();
+    formData.append('user_id', userId);
+
+    const response = await api.delete(`/conversations/${conversationId}`, {
+      data: formData
+    });
+    return response.data;
+  },
+
+  updateConversationTitle: async (conversationId: string, userId: string, title: string) => {
+    const formData = new FormData();
+    formData.append('user_id', userId);
+    formData.append('title', title);
+
+    const response = await api.put(`/conversations/${conversationId}/title`, formData);
+    return response.data.conversation;
   },
 };
 

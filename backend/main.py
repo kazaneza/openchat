@@ -214,21 +214,21 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
         content = await file.read()
         print(f"File size: {len(content)} bytes")
         
-        # Extract text from PDF
+        # Extract text from PDF with page information
         try:
-            text_content = document_service.extract_text_from_pdf(content)
-            print(f"Extracted text length: {len(text_content)} characters")
+            text_content, page_texts = document_service.extract_text_from_pdf(content)
+            print(f"Extracted text length: {len(text_content)} characters from {len(page_texts)} pages")
         except Exception as e:
             print(f"PDF extraction error: {str(e)}")
             raise HTTPException(status_code=400, detail=str(e))
-        
-        # Chunk the text
-        chunks = document_service.chunk_text(text_content)
-        print(f"Created {len(chunks)} chunks")
-        
+
+        # Chunk the text with page tracking
+        chunks = document_service.chunk_text(text_content, page_texts=page_texts)
+        print(f"Created {len(chunks)} chunks with page information")
+
         # Save document
         try:
-            document = document_service.save_document(content, file.filename, text_content, chunks)
+            document = document_service.save_document(content, file.filename, text_content, chunks, page_texts)
             print(f"Document saved: {document['id']}")
         except Exception as e:
             print(f"File save error: {str(e)}")

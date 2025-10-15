@@ -18,38 +18,46 @@ class EmbeddingService:
         if not self.openai_service.is_available():
             print("OpenAI service not available, skipping embeddings")
             return document
-        
+
         chunks = document.get("chunks", [])
         if not chunks:
             print(f"No chunks found for document {document['filename']}")
             return document
-        
+
         try:
             document_id = document["id"]
             document_name = document["filename"]
-            
+
             print(f"Generating embeddings for {document_name} ({len(chunks)} chunks)")
-            
+
+            # Extract text from chunks (handle both old and new format)
+            chunk_texts = []
+            for chunk in chunks:
+                if isinstance(chunk, dict):
+                    chunk_texts.append(chunk.get("text", ""))
+                else:
+                    chunk_texts.append(str(chunk))
+
             # Generate embeddings in batches to avoid rate limits
             batch_size = 10
             all_embeddings = []
-            
-            for i in range(0, len(chunks), batch_size):
-                batch_chunks = chunks[i:i + batch_size]
+
+            for i in range(0, len(chunk_texts), batch_size):
+                batch_chunks = chunk_texts[i:i + batch_size]
                 batch_embeddings = self.openai_service.get_embeddings(batch_chunks)
-                
+
                 if not batch_embeddings:
                     print(f"Failed to generate embeddings for batch {i//batch_size + 1}")
                     continue
-                    
+
                 all_embeddings.extend(batch_embeddings)
-                print(f"Generated embeddings for batch {i//batch_size + 1}/{(len(chunks) + batch_size - 1)//batch_size}")
-            
+                print(f"Generated embeddings for batch {i//batch_size + 1}/{(len(chunk_texts) + batch_size - 1)//batch_size}")
+
             if len(all_embeddings) != len(chunks):
                 print(f"Warning: Embedding count mismatch for {document_name}")
                 return document
-            
-            # Store embeddings in ChromaDB
+
+            # Store embeddings in ChromaDB with metadata
             success = self.vector_service.add_document_chunks(
                 document_id=document_id,
                 document_name=document_name,
@@ -57,25 +65,25 @@ class EmbeddingService:
                 embeddings=all_embeddings,
                 organization_id=organization_id
             )
-            
+
             if success:
                 # Also cache embeddings in file system as backup
                 cache_file = os.path.join(self.embeddings_cache_dir, f"{document_id}.json")
                 with open(cache_file, 'w') as f:
                     json.dump(all_embeddings, f)
-                
+
                 # Store embeddings in document for backward compatibility
                 document["chunk_embeddings"] = all_embeddings
                 document["embeddings_stored"] = True
                 document["vector_db_stored"] = True
-                
+
                 print(f"Successfully generated and stored embeddings for {document_name}")
             else:
                 print(f"Failed to store embeddings in ChromaDB for {document_name}")
-        
+
         except Exception as e:
             print(f"Error generating embeddings for {document['filename']}: {e}")
-        
+
         return document
     
     def update_document_embeddings(self, documents: List[Dict], organization_id: str) -> List[Dict]:

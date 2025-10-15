@@ -29,24 +29,34 @@ class VectorService:
         
         print(f"ChromaDB initialized with {self.collection.count()} existing embeddings")
     
-    def add_document_chunks(self, document_id: str, document_name: str, chunks: List[str], embeddings: List[List[float]], organization_id: str) -> bool:
+    def add_document_chunks(self, document_id: str, document_name: str, chunks: List[Any], embeddings: List[List[float]], organization_id: str) -> bool:
         """Add document chunks with embeddings to ChromaDB"""
         try:
             if len(chunks) != len(embeddings):
                 print(f"Warning: Chunk count ({len(chunks)}) doesn't match embedding count ({len(embeddings)})")
                 return False
-            
+
             # Prepare data for ChromaDB
             ids = []
             documents = []
             metadatas = []
             embedding_vectors = []
-            
+
             for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
                 chunk_id = f"{document_id}_chunk_{i}"
-                
+
+                # Handle both old (string) and new (dict) chunk formats
+                if isinstance(chunk, dict):
+                    chunk_text = chunk.get("text", "")
+                    pages = chunk.get("pages", [])
+                    token_count = chunk.get("token_count", len(chunk_text.split()))
+                else:
+                    chunk_text = str(chunk)
+                    pages = []
+                    token_count = len(chunk_text.split())
+
                 ids.append(chunk_id)
-                documents.append(chunk)
+                documents.append(chunk_text)
                 metadatas.append({
                     "document_id": document_id,
                     "document_name": document_name,
@@ -54,7 +64,10 @@ class VectorService:
                     "chunk_index": i,
                     "chunk_id": chunk_id,
                     "timestamp": datetime.now().isoformat(),
-                    "token_count": len(chunk.split())  # Rough token estimate
+                    "token_count": token_count,
+                    "pages": json.dumps(pages),
+                    "page_start": pages[0] if pages else 0,
+                    "page_end": pages[-1] if pages else 0
                 })
                 embedding_vectors.append(embedding)
             
@@ -96,8 +109,16 @@ class VectorService:
             for doc, metadata, distance in zip(documents, metadatas, distances):
                 # Convert distance to similarity score (ChromaDB uses cosine distance)
                 similarity = 1 - distance
-                
+
                 if similarity >= similarity_threshold:
+                    # Parse pages from JSON
+                    pages = []
+                    if "pages" in metadata:
+                        try:
+                            pages = json.loads(metadata["pages"])
+                        except:
+                            pages = []
+
                     similar_chunks.append({
                         "text": doc,
                         "document_id": metadata["document_id"],
@@ -107,7 +128,10 @@ class VectorService:
                         "similarity": similarity,
                         "distance": distance,
                         "timestamp": metadata.get("timestamp"),
-                        "token_count": metadata.get("token_count", 0)
+                        "token_count": metadata.get("token_count", 0),
+                        "pages": pages,
+                        "page_start": metadata.get("page_start", 0),
+                        "page_end": metadata.get("page_end", 0)
                     })
             
             print(f"Found {len(similar_chunks)} similar chunks (threshold: {similarity_threshold})")
