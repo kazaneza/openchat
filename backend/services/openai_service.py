@@ -2,7 +2,7 @@ import os
 import openai
 from openai import OpenAI
 import tiktoken
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Generator
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
@@ -127,7 +127,53 @@ class OpenAIService:
             print(f"OpenAI API Error: {str(e)}")
             traceback.print_exc()
             return "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or rephrase your question."
-    
+
+    def generate_response_stream(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context: str = "",
+        is_document_query: bool = True,
+        user_language: str = "en"
+    ) -> Generator[str, None, None]:
+        """Generate streaming AI response using OpenAI GPT"""
+        if not self.client:
+            yield "I'm currently unable to process your request. Please try again later."
+            return
+
+        try:
+            # Build final prompt same as non-streaming
+            language_instruction = "\n\nIMPORTANT: Always respond in the same language as the user's message. Match their language naturally."
+            final_system_prompt = f"{system_prompt}{language_instruction}"
+
+            if is_document_query and context:
+                context_addition = f"\n\nAvailable Information:\n{context}\n\nInstructions:\n- Use the provided information to give comprehensive answers\n- Be helpful and polite in your responses"
+                final_system_prompt += context_addition
+            elif context:
+                final_system_prompt += f"\n\nAdditional context: {context}"
+
+            # Create streaming completion
+            stream = self.client.chat.completions.create(
+                model=self.chat_model,
+                messages=[
+                    {"role": "system", "content": final_system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                stream=True
+            )
+
+            # Yield chunks as they arrive
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    yield chunk.choices[0].delta.content
+
+        except Exception as e:
+            print(f"OpenAI Streaming API Error: {str(e)}")
+            traceback.print_exc()
+            yield "I apologize, but I'm having trouble processing your request right now."
+
     def detect_query_type(self, message: str) -> str:
         """Detect if query is document-specific or general"""
         document_keywords = [

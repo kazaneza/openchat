@@ -1,12 +1,14 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from typing import List, Optional
 from dotenv import load_dotenv
 import uvicorn
 import traceback
 import os
+import json
+import asyncio
 
 # Import services and models
 from services.openai_service import OpenAIService
@@ -16,8 +18,10 @@ from services.query_service import QueryService
 from services.vector_service import VectorService
 from services.prompt_service import PromptService
 from services.feedback_service import FeedbackService
+from services.response_quality_service import ResponseQualityService
 from models.organization import OrganizationModel
 from models.user import UserModel
+from models.feedback import FeedbackModel
 
 # Load environment variables
 load_dotenv()
@@ -30,8 +34,10 @@ prompt_service = PromptService()
 embedding_service = EmbeddingService(openai_service, vector_service)
 query_service = QueryService(openai_service, document_service, embedding_service, vector_service, prompt_service)
 feedback_service = FeedbackService()
+response_quality_service = ResponseQualityService()
 
 # Initialize models
+feedback_model = FeedbackModel()
 organization_model = OrganizationModel()
 user_model = UserModel()
 
