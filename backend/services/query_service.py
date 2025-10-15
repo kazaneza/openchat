@@ -4,6 +4,7 @@ from .document_service import DocumentService
 from .embedding_service import EmbeddingService
 from .vector_service import VectorService
 from .prompt_service import PromptService
+from .retrieval_service import RetrievalService
 from models.conversation import ConversationModel
 import traceback
 
@@ -15,6 +16,7 @@ class QueryService:
         self.vector_service = vector_service
         self.prompt_service = prompt_service
         self.conversation_model = ConversationModel()
+        self.retrieval_service = RetrievalService()
 
     def process_query(self, message: str, organization: Dict, user_context: Dict = None, conversation_id: str = None) -> Dict:
         """Process user query with RAG approach - GPT handles language naturally"""
@@ -130,8 +132,16 @@ class QueryService:
         )
 
     def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "") -> Tuple[str, List[Dict], float]:
-        """Handle document-specific queries using RAG - returns (response, sources, confidence)"""
+        """Handle document-specific queries using enhanced RAG - returns (response, sources, confidence)"""
         try:
+            # Analyze query complexity
+            query_analysis = self.retrieval_service.analyze_query_complexity(message)
+            print(f"Query analysis: {query_analysis}")
+
+            # Calculate adaptive retrieval parameters
+            retrieval_params = self.retrieval_service.calculate_adaptive_parameters(query_analysis)
+            print(f"Adaptive parameters: top_k={retrieval_params['top_k']}, threshold={retrieval_params['similarity_threshold']}")
+
             # Ensure documents have embeddings
             organization_id = organization["id"]
             documents = self.embedding_service.update_document_embeddings(documents, organization_id)
@@ -142,26 +152,85 @@ class QueryService:
                 response = self._fallback_keyword_search(message, organization, documents, organization_id)
                 return response, [], 0.3
 
-            # Search for similar chunks using ChromaDB
-            similar_chunks = self.embedding_service.search_similar_chunks(
+            # Search for similar chunks using ChromaDB with adaptive top_k
+            semantic_results = self.embedding_service.search_similar_chunks(
                 query_embedding=query_embedding,
                 organization_id=organization_id,
-                top_k=5
+                top_k=retrieval_params['top_k']
             )
 
-            if not similar_chunks:
+            if not semantic_results:
                 print("No similar chunks found in ChromaDB, falling back to keyword search")
                 response = self._fallback_keyword_search(message, organization, documents, organization_id)
                 return response, [], 0.3
 
-            # Extract sources from similar chunks
-            sources = self._extract_sources(similar_chunks)
+            # Prepare all chunks for hybrid search
+            all_chunks = []
+            for doc in documents:
+                chunks = doc.get("chunks", [])
+                for i, chunk in enumerate(chunks):
+                    if isinstance(chunk, dict):
+                        chunk_text = chunk.get("text", "")
+                    else:
+                        chunk_text = str(chunk)
 
-            # Calculate average confidence score
-            confidence_score = sum(chunk.get('similarity', 0) for chunk in similar_chunks) / len(similar_chunks) if similar_chunks else 0
+                    all_chunks.append({
+                        'text': chunk_text,
+                        'document_id': doc.get('id', ''),
+                        'document_name': doc.get('filename', ''),
+                        'chunk_index': i,
+                        'chunk_id': f"{doc.get('id', '')}_{i}",
+                        'pages': chunk.get('pages', []) if isinstance(chunk, dict) else []
+                    })
 
-            # Prepare context from similar chunks
-            context = self._prepare_context_from_chunks(similar_chunks)
+            # Perform hybrid search
+            hybrid_results = self.retrieval_service.hybrid_search(
+                semantic_results=semantic_results,
+                query=message,
+                all_chunks=all_chunks,
+                keyword_weight=retrieval_params['keyword_weight']
+            )
+
+            print(f"Hybrid search returned {len(hybrid_results)} results")
+
+            # Re-rank results
+            reranked_results = self.retrieval_service.rerank_results(hybrid_results, query_analysis)
+
+            # Apply dynamic threshold filtering
+            filtered_results = self.retrieval_service.filter_by_dynamic_threshold(
+                reranked_results,
+                retrieval_params['similarity_threshold'],
+                query_analysis
+            )
+
+            print(f"After filtering: {len(filtered_results)} results")
+
+            # Diversify results to avoid over-representation from single document
+            final_results = self.retrieval_service.diversify_results(filtered_results)
+
+            print(f"Final results: {len(final_results)} chunks")
+
+            if not final_results:
+                print("No results after filtering, falling back")
+                response = self._fallback_keyword_search(message, organization, documents, organization_id)
+                return response, [], 0.3
+
+            # Extract sources from final results
+            sources = self._extract_sources(final_results)
+
+            # Calculate weighted confidence score
+            if final_results:
+                # Weight by position (earlier results are more important)
+                weighted_scores = []
+                for i, chunk in enumerate(final_results[:5]):
+                    position_weight = 1.0 / (i + 1)
+                    weighted_scores.append(chunk.get('similarity', 0) * position_weight)
+                confidence_score = sum(weighted_scores) / sum(1.0 / (i + 1) for i in range(len(weighted_scores)))
+            else:
+                confidence_score = 0
+
+            # Prepare context from final results
+            context = self._prepare_context_from_chunks(final_results)
 
             # Generate response
             base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
@@ -176,6 +245,10 @@ class QueryService:
             if conversation_context:
                 system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
 
+            # Add retrieval quality info to help AI assess confidence
+            retrieval_info = f"\n\nRetrieval Info: Found {len(final_results)} relevant passages with average relevance of {confidence_score:.2f}. Query complexity: {query_analysis['complexity_level']}."
+            system_prompt += retrieval_info
+
             response = self.openai_service.generate_response(
                 system_prompt=system_prompt,
                 user_message=message,
@@ -187,6 +260,7 @@ class QueryService:
 
         except Exception as e:
             print(f"Error in document query processing: {e}")
+            traceback.print_exc()
             response = self._fallback_keyword_search(message, organization, documents, organization.get("id"))
             return response, [], 0.3
 
