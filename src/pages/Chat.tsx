@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, FileText, MessageSquare, Trash2, BookOpen, TrendingUp } from 'lucide-react';
+import { Send, Bot, User, FileText, MessageSquare, Trash2, BookOpen, TrendingUp, AlertCircle } from 'lucide-react';
 import { Conversation, ConversationMessage } from '../types';
 import { organizationApi, conversationApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -115,7 +115,8 @@ const Chat: React.FC = () => {
         metadata: {
           query_type: response.query_type,
           sources: response.sources || [],
-          confidence_score: response.confidence_score || 0
+          confidence_score: response.confidence_score || 0,
+          needs_clarification: response.needs_clarification || false
         },
       };
 
@@ -311,13 +312,31 @@ const Chat: React.FC = () => {
                   {message.role === 'assistant' && (
                     <div className="flex justify-start mb-4">
                       <div className="flex items-start space-x-3 max-w-3xl">
-                        <div className="w-8 h-8 bg-gradient-to-r from-blue-900 to-slate-700 rounded-full flex items-center justify-center flex-shrink-0">
-                          <Bot className="w-4 h-4 text-white" />
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          message.metadata?.needs_clarification
+                            ? 'bg-gradient-to-r from-orange-500 to-yellow-500'
+                            : 'bg-gradient-to-r from-blue-900 to-slate-700'
+                        }`}>
+                          {message.metadata?.needs_clarification ? (
+                            <AlertCircle className="w-4 h-4 text-white" />
+                          ) : (
+                            <Bot className="w-4 h-4 text-white" />
+                          )}
                         </div>
-                        <div className="bg-slate-100 dark:bg-gray-700 rounded-2xl rounded-tl-none px-6 py-3 flex-1">
+                        <div className={`rounded-2xl rounded-tl-none px-6 py-3 flex-1 ${
+                          message.metadata?.needs_clarification
+                            ? 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
+                            : 'bg-slate-100 dark:bg-gray-700'
+                        }`}>
+                          {message.metadata?.needs_clarification && (
+                            <div className="flex items-center gap-2 mb-2 text-orange-700 dark:text-orange-300">
+                              <AlertCircle className="w-4 h-4" />
+                              <span className="text-xs font-medium">Clarification Needed</span>
+                            </div>
+                          )}
                           <p className="whitespace-pre-wrap dark:text-gray-200">{message.content}</p>
-                          {renderConfidenceScore(message.metadata?.confidence_score)}
-                          {renderSources(message.metadata?.sources)}
+                          {!message.metadata?.needs_clarification && renderConfidenceScore(message.metadata?.confidence_score)}
+                          {!message.metadata?.needs_clarification && renderSources(message.metadata?.sources)}
                         </div>
                       </div>
                     </div>

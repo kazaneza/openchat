@@ -5,6 +5,7 @@ from .embedding_service import EmbeddingService
 from .vector_service import VectorService
 from .prompt_service import PromptService
 from .retrieval_service import RetrievalService
+from .query_understanding_service import QueryUnderstandingService
 from models.conversation import ConversationModel
 import traceback
 
@@ -17,12 +18,44 @@ class QueryService:
         self.prompt_service = prompt_service
         self.conversation_model = ConversationModel()
         self.retrieval_service = RetrievalService()
+        self.query_understanding = QueryUnderstandingService()
 
     def process_query(self, message: str, organization: Dict, user_context: Dict = None, conversation_id: str = None) -> Dict:
-        """Process user query with RAG approach - GPT handles language naturally"""
+        """Process user query with enhanced understanding and RAG"""
         try:
             org_id = organization.get("id")
             user_id = user_context.get("user_id") if user_context else None
+
+            # Get conversation history for context
+            conversation_history = []
+            if conversation_id:
+                messages = self.conversation_model.get_messages(conversation_id, limit=10)
+                conversation_history = messages
+
+            # Analyze query with enhanced understanding
+            documents = organization.get("documents", [])
+            query_analysis = self.query_understanding.analyze_query(
+                message,
+                conversation_history=conversation_history,
+                available_documents=len(documents)
+            )
+
+            print(f"Query Analysis: Intent={query_analysis['intent']['primary_intent']}, "
+                  f"Follow-up={query_analysis['follow_up']['is_follow_up']}, "
+                  f"Ambiguous={query_analysis['ambiguity']['is_ambiguous']}")
+
+            # Check if clarification is needed
+            if query_analysis.get('needs_clarification'):
+                clarification_prompt = query_analysis.get('clarification_prompt')
+                return {
+                    "response": clarification_prompt,
+                    "conversation_id": conversation_id,
+                    "query_type": "clarification_needed",
+                    "sources": [],
+                    "confidence_score": 0.0,
+                    "needs_clarification": True,
+                    "query_analysis": query_analysis
+                }
 
             # Create or get conversation
             if not conversation_id and user_id:
@@ -42,15 +75,13 @@ class QueryService:
                 self.conversation_model.add_message(
                     conversation_id=conversation_id,
                     role="user",
-                    content=message
+                    content=message,
+                    metadata=self.query_understanding.get_query_metadata(query_analysis)
                 )
 
-            # Process query using RAG
-            query_type = self.openai_service.detect_query_type(message)
-            print(f"Query type detected: {query_type}")
-
-            # Get documents
-            documents = organization.get("documents", [])
+            # Use enhanced query if it's a follow-up
+            query_to_process = query_analysis.get('enhanced_query', message)
+            print(f"Processing query: {query_to_process[:100]}...")
 
             # Get conversation context if available
             conversation_context = ""
@@ -63,17 +94,18 @@ class QueryService:
             # Process the query
             sources = []
             confidence_score = 0.0
+            primary_intent = query_analysis['intent']['primary_intent']
 
-            if not documents or query_type == "general":
+            if not documents or primary_intent in ['general_inquiry', 'opinion_recommendation']:
                 # Handle general queries or no documents
                 response = self._handle_general_query(
-                    message, organization, query_type, user_context, conversation_context
+                    query_to_process, organization, primary_intent, user_context, conversation_context
                 )
                 confidence_score = 0.7
             else:
                 # Handle document-specific queries with RAG
                 response, sources, confidence_score = self._handle_document_query(
-                    message, organization, documents, user_context, conversation_context
+                    query_to_process, organization, documents, user_context, conversation_context, query_analysis
                 )
 
             # Add assistant response to conversation
@@ -83,18 +115,21 @@ class QueryService:
                     role="assistant",
                     content=response,
                     metadata={
-                        "query_type": query_type,
+                        "query_type": primary_intent,
                         "sources": sources,
-                        "confidence_score": confidence_score
+                        "confidence_score": confidence_score,
+                        "intent_info": query_analysis['intent'],
+                        "is_follow_up": query_analysis['follow_up']['is_follow_up']
                     }
                 )
 
             return {
                 "response": response,
                 "conversation_id": conversation_id,
-                "query_type": query_type,
+                "query_type": primary_intent,
                 "sources": sources,
-                "confidence_score": confidence_score
+                "confidence_score": confidence_score,
+                "query_analysis": query_analysis
             }
 
         except Exception as e:
@@ -131,15 +166,18 @@ class QueryService:
             is_document_query=False
         )
 
-    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "") -> Tuple[str, List[Dict], float]:
+    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "", query_analysis: Dict = None) -> Tuple[str, List[Dict], float]:
         """Handle document-specific queries using enhanced RAG - returns (response, sources, confidence)"""
         try:
-            # Analyze query complexity
-            query_analysis = self.retrieval_service.analyze_query_complexity(message)
-            print(f"Query analysis: {query_analysis}")
+            # Use provided query analysis or analyze query complexity
+            if not query_analysis:
+                query_analysis = {'intent': {'primary_intent': 'general_inquiry'}}
+
+            complexity_analysis = self.retrieval_service.analyze_query_complexity(message)
+            print(f"Complexity analysis: {complexity_analysis}")
 
             # Calculate adaptive retrieval parameters
-            retrieval_params = self.retrieval_service.calculate_adaptive_parameters(query_analysis)
+            retrieval_params = self.retrieval_service.calculate_adaptive_parameters(complexity_analysis)
             print(f"Adaptive parameters: top_k={retrieval_params['top_k']}, threshold={retrieval_params['similarity_threshold']}")
 
             # Ensure documents have embeddings
@@ -194,13 +232,13 @@ class QueryService:
             print(f"Hybrid search returned {len(hybrid_results)} results")
 
             # Re-rank results
-            reranked_results = self.retrieval_service.rerank_results(hybrid_results, query_analysis)
+            reranked_results = self.retrieval_service.rerank_results(hybrid_results, complexity_analysis)
 
             # Apply dynamic threshold filtering
             filtered_results = self.retrieval_service.filter_by_dynamic_threshold(
                 reranked_results,
                 retrieval_params['similarity_threshold'],
-                query_analysis
+                complexity_analysis
             )
 
             print(f"After filtering: {len(filtered_results)} results")
@@ -246,7 +284,7 @@ class QueryService:
                 system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
 
             # Add retrieval quality info to help AI assess confidence
-            retrieval_info = f"\n\nRetrieval Info: Found {len(final_results)} relevant passages with average relevance of {confidence_score:.2f}. Query complexity: {query_analysis['complexity_level']}."
+            retrieval_info = f"\n\nRetrieval Info: Found {len(final_results)} relevant passages with average relevance of {confidence_score:.2f}. Query complexity: {complexity_analysis['complexity_level']}. Intent: {query_analysis['intent']['primary_intent']}."
             system_prompt += retrieval_info
 
             response = self.openai_service.generate_response(
