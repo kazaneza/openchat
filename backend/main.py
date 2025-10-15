@@ -15,6 +15,7 @@ from services.embedding_service import EmbeddingService
 from services.query_service import QueryService
 from services.vector_service import VectorService
 from services.prompt_service import PromptService
+from services.feedback_service import FeedbackService
 from models.organization import OrganizationModel
 from models.user import UserModel
 
@@ -28,6 +29,7 @@ vector_service = VectorService()
 prompt_service = PromptService()
 embedding_service = EmbeddingService(openai_service, vector_service)
 query_service = QueryService(openai_service, document_service, embedding_service, vector_service, prompt_service)
+feedback_service = FeedbackService()
 
 # Initialize models
 organization_model = OrganizationModel()
@@ -342,6 +344,152 @@ async def delete_document(org_id: str, doc_id: str, user_id: str = Form(...)):
     print(f"Document {doc_to_delete['filename']} deleted successfully")
 
     return {"message": "Document deleted successfully"}
+
+# Feedback endpoints
+@app.post("/api/feedback/thumbs-up")
+async def submit_thumbs_up(
+    message_id: str = Form(...),
+    conversation_id: str = Form(...),
+    user_id: str = Form(...),
+    organization_id: str = Form(...),
+    query: str = Form(...),
+    response: str = Form(...),
+    metadata: Optional[str] = Form(None)
+):
+    """Submit positive feedback"""
+    try:
+        import json
+        metadata_dict = json.loads(metadata) if metadata else {}
+
+        feedback = feedback_service.record_thumbs_up(
+            message_id=message_id,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            organization_id=organization_id,
+            query=query,
+            response=response,
+            metadata=metadata_dict
+        )
+
+        return {"message": "Feedback recorded", "feedback": feedback}
+    except Exception as e:
+        print(f"Error recording thumbs up: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/feedback/thumbs-down")
+async def submit_thumbs_down(
+    message_id: str = Form(...),
+    conversation_id: str = Form(...),
+    user_id: str = Form(...),
+    organization_id: str = Form(...),
+    query: str = Form(...),
+    response: str = Form(...),
+    comment: Optional[str] = Form(None),
+    metadata: Optional[str] = Form(None)
+):
+    """Submit negative feedback"""
+    try:
+        import json
+        metadata_dict = json.loads(metadata) if metadata else {}
+
+        feedback = feedback_service.record_thumbs_down(
+            message_id=message_id,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            organization_id=organization_id,
+            query=query,
+            response=response,
+            comment=comment,
+            metadata=metadata_dict
+        )
+
+        return {"message": "Feedback recorded", "feedback": feedback}
+    except Exception as e:
+        print(f"Error recording thumbs down: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/feedback/correction")
+async def submit_correction(
+    message_id: str = Form(...),
+    conversation_id: str = Form(...),
+    user_id: str = Form(...),
+    organization_id: str = Form(...),
+    query: str = Form(...),
+    response: str = Form(...),
+    correction: str = Form(...),
+    metadata: Optional[str] = Form(None)
+):
+    """Submit user correction"""
+    try:
+        import json
+        metadata_dict = json.loads(metadata) if metadata else {}
+
+        feedback = feedback_service.record_correction(
+            message_id=message_id,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            organization_id=organization_id,
+            query=query,
+            response=response,
+            correction=correction,
+            metadata=metadata_dict
+        )
+
+        return {"message": "Correction recorded", "feedback": feedback}
+    except Exception as e:
+        print(f"Error recording correction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/analytics/today")
+async def get_today_analytics():
+    """Get today's feedback analytics"""
+    try:
+        analytics = feedback_service.get_today_analytics()
+        return analytics
+    except Exception as e:
+        print(f"Error getting analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/analytics/range")
+async def get_analytics_range(days: int = 7):
+    """Get analytics for date range"""
+    try:
+        analytics = feedback_service.get_date_range_analytics(days)
+        return {"analytics": analytics}
+    except Exception as e:
+        print(f"Error getting analytics range: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/analytics/problematic-queries")
+async def get_problematic_queries(min_negative: int = 2):
+    """Get queries with consistent negative feedback"""
+    try:
+        problematic = feedback_service.get_problematic_queries(min_negative)
+        return {"queries": problematic}
+    except Exception as e:
+        print(f"Error getting problematic queries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/admin/cleanup-feedback")
+async def cleanup_old_feedback(retention_days: int = 1):
+    """Clean up old feedback data (admin only)"""
+    try:
+        removed_count = feedback_service.cleanup_old_data(retention_days)
+        return {"message": f"Removed {removed_count} old feedback files"}
+    except Exception as e:
+        print(f"Error cleaning up feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/admin/export-training-data")
+async def export_training_data():
+    """Export feedback data for training"""
+    try:
+        output_file = "data/feedback/training_export.json"
+        count = feedback_service.export_training_data(output_file)
+        return {"message": f"Exported {count} training examples", "file": output_file}
+    except Exception as e:
+        print(f"Error exporting training data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Mount static files (built frontend)
 dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")

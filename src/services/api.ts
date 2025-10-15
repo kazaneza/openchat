@@ -116,6 +116,88 @@ export const conversationApi = {
   },
 };
 
+export const feedbackApi = {
+  submitThumbsUp: async (
+    messageId: string,
+    conversationId: string,
+    userId: string,
+    orgId: string,
+    query: string,
+    response: string,
+    metadata: any
+  ) => {
+    const formData = new FormData();
+    formData.append('message_id', messageId);
+    formData.append('conversation_id', conversationId);
+    formData.append('user_id', userId);
+    formData.append('organization_id', orgId);
+    formData.append('query', query);
+    formData.append('response', response);
+    formData.append('metadata', JSON.stringify(metadata));
+
+    const result = await api.post('/feedback/thumbs-up', formData);
+    return result.data;
+  },
+
+  submitThumbsDown: async (
+    messageId: string,
+    conversationId: string,
+    userId: string,
+    orgId: string,
+    query: string,
+    response: string,
+    comment: string,
+    metadata: any
+  ) => {
+    const formData = new FormData();
+    formData.append('message_id', messageId);
+    formData.append('conversation_id', conversationId);
+    formData.append('user_id', userId);
+    formData.append('organization_id', orgId);
+    formData.append('query', query);
+    formData.append('response', response);
+    formData.append('comment', comment);
+    formData.append('metadata', JSON.stringify(metadata));
+
+    const result = await api.post('/feedback/thumbs-down', formData);
+    return result.data;
+  },
+
+  submitCorrection: async (
+    messageId: string,
+    conversationId: string,
+    userId: string,
+    orgId: string,
+    query: string,
+    response: string,
+    correction: string,
+    metadata: any
+  ) => {
+    const formData = new FormData();
+    formData.append('message_id', messageId);
+    formData.append('conversation_id', conversationId);
+    formData.append('user_id', userId);
+    formData.append('organization_id', orgId);
+    formData.append('query', query);
+    formData.append('response', response);
+    formData.append('correction', correction);
+    formData.append('metadata', JSON.stringify(metadata));
+
+    const result = await api.post('/feedback/correction', formData);
+    return result.data;
+  },
+
+  getTodayAnalytics: async () => {
+    const response = await api.get('/analytics/today');
+    return response.data;
+  },
+
+  getAnalyticsRange: async (days: number = 7) => {
+    const response = await api.get(`/analytics/range?days=${days}`);
+    return response.data;
+  },
+};
+
 export const adminApi = {
   getOrganizations: async () => {
     const response = await api.get('/admin/organizations');

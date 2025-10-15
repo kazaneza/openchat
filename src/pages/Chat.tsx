@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, FileText, MessageSquare, Trash2, BookOpen, TrendingUp, AlertCircle } from 'lucide-react';
+import { Send, Bot, User, FileText, MessageSquare, Trash2, BookOpen, TrendingUp, AlertCircle, ThumbsUp, ThumbsDown, Edit3 } from 'lucide-react';
 import { Conversation, ConversationMessage } from '../types';
-import { organizationApi, conversationApi } from '../services/api';
+import { organizationApi, conversationApi, feedbackApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 interface Source {
@@ -19,6 +19,9 @@ const Chat: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [showConversations, setShowConversations] = useState(false);
+  const [feedbackGiven, setFeedbackGiven] = useState<Set<string>>(new Set());
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [correctionText, setCorrectionText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,6 +82,68 @@ const Chat: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
+    }
+  };
+
+  const handleThumbsUp = async (message: ConversationMessage, userQuery: string) => {
+    if (!currentUser || !currentOrganization || feedbackGiven.has(message.id)) return;
+
+    try {
+      await feedbackApi.submitThumbsUp(
+        message.id,
+        message.conversation_id,
+        currentUser.id,
+        currentOrganization.id,
+        userQuery,
+        message.content,
+        message.metadata || {}
+      );
+      setFeedbackGiven(prev => new Set(prev).add(message.id));
+    } catch (error) {
+      console.error('Failed to submit feedback:', error);
+    }
+  };
+
+  const handleThumbsDown = async (message: ConversationMessage, userQuery: string) => {
+    if (!currentUser || !currentOrganization || feedbackGiven.has(message.id)) return;
+
+    try {
+      const comment = prompt('Optional: What was wrong with this response?');
+      await feedbackApi.submitThumbsDown(
+        message.id,
+        message.conversation_id,
+        currentUser.id,
+        currentOrganization.id,
+        userQuery,
+        message.content,
+        comment || '',
+        message.metadata || {}
+      );
+      setFeedbackGiven(prev => new Set(prev).add(message.id));
+    } catch (error) {
+      console.error('Failed to submit feedback:', error);
+    }
+  };
+
+  const handleCorrection = async (message: ConversationMessage, userQuery: string) => {
+    if (!currentUser || !currentOrganization || !correctionText.trim()) return;
+
+    try {
+      await feedbackApi.submitCorrection(
+        message.id,
+        message.conversation_id,
+        currentUser.id,
+        currentOrganization.id,
+        userQuery,
+        message.content,
+        correctionText,
+        message.metadata || {}
+      );
+      setFeedbackGiven(prev => new Set(prev).add(message.id));
+      setEditingMessageId(null);
+      setCorrectionText('');
+    } catch (error) {
+      console.error('Failed to submit correction:', error);
     }
   };
 
@@ -294,20 +359,23 @@ const Chat: React.FC = () => {
                 <p className="text-gray-600 dark:text-gray-300">Ask questions about the documents in this organization. The AI will provide answers based on the content.</p>
               </div>
             ) : (
-              messages.map((message) => (
-                <div key={message.id}>
-                  {message.role === 'user' && (
-                    <div className="flex justify-end mb-4">
-                      <div className="flex items-start space-x-3 max-w-3xl">
-                        <div className="bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-2xl rounded-tr-none px-6 py-3 shadow-lg">
-                          <p>{message.content}</p>
-                        </div>
-                        <div className="w-8 h-8 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
-                          <User className="w-4 h-4 text-deep-blue dark:text-blue-400" />
+              messages.map((message, idx) => {
+                const userQuery = idx > 0 && messages[idx - 1].role === 'user' ? messages[idx - 1].content : '';
+
+                return (
+                  <div key={message.id}>
+                    {message.role === 'user' && (
+                      <div className="flex justify-end mb-4">
+                        <div className="flex items-start space-x-3 max-w-3xl">
+                          <div className="bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-2xl rounded-tr-none px-6 py-3 shadow-lg">
+                            <p>{message.content}</p>
+                          </div>
+                          <div className="w-8 h-8 bg-slate-100 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
+                            <User className="w-4 h-4 text-deep-blue dark:text-blue-400" />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
                   {message.role === 'assistant' && (
                     <div className="flex justify-start mb-4">
@@ -337,12 +405,87 @@ const Chat: React.FC = () => {
                           <p className="whitespace-pre-wrap dark:text-gray-200">{message.content}</p>
                           {!message.metadata?.needs_clarification && renderConfidenceScore(message.metadata?.confidence_score)}
                           {!message.metadata?.needs_clarification && renderSources(message.metadata?.sources)}
+
+                          {/* Feedback buttons */}
+                          {!message.metadata?.needs_clarification && (
+                            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-gray-600 flex items-center gap-2">
+                              <button
+                                onClick={() => handleThumbsUp(message, userQuery)}
+                                disabled={feedbackGiven.has(message.id)}
+                                className={`p-1.5 rounded-lg transition-all ${
+                                  feedbackGiven.has(message.id)
+                                    ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+                                    : 'text-slate-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-slate-100 dark:hover:bg-gray-600'
+                                }`}
+                                title="Helpful response"
+                              >
+                                <ThumbsUp className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleThumbsDown(message, userQuery)}
+                                disabled={feedbackGiven.has(message.id)}
+                                className={`p-1.5 rounded-lg transition-all ${
+                                  feedbackGiven.has(message.id)
+                                    ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+                                    : 'text-slate-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-gray-600'
+                                }`}
+                                title="Not helpful"
+                              >
+                                <ThumbsDown className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingMessageId(message.id);
+                                  setCorrectionText('');
+                                }}
+                                disabled={feedbackGiven.has(message.id)}
+                                className="p-1.5 rounded-lg text-slate-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-gray-600 transition-all disabled:opacity-50"
+                                title="Suggest correction"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Correction input */}
+                          {editingMessageId === message.id && (
+                            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-gray-600">
+                              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Suggest a better response:
+                              </label>
+                              <textarea
+                                value={correctionText}
+                                onChange={(e) => setCorrectionText(e.target.value)}
+                                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                                rows={3}
+                                placeholder="Provide the correct or better response..."
+                              />
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  onClick={() => handleCorrection(message, userQuery)}
+                                  className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all"
+                                >
+                                  Submit
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingMessageId(null);
+                                    setCorrectionText('');
+                                  }}
+                                  className="px-3 py-1.5 text-sm bg-slate-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-slate-300 dark:hover:bg-gray-500 transition-all"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
                   )}
                 </div>
-              ))
+                );
+              })
             )}
 
             {loading && (
