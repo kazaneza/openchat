@@ -92,23 +92,13 @@ const Upload: React.FC = () => {
     });
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files);
-      const pdfFiles = selectedFiles.filter(file =>
-        file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-      );
-      setFiles(prev => [...prev, ...pdfFiles]);
-    }
-  };
-
   const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const selectedFiles = Array.from(e.target.files);
       const pdfFiles = selectedFiles.filter(file =>
         file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
       );
-      setFiles(prev => [...prev, ...pdfFiles]);
+      setFiles(pdfFiles);
     }
   };
 
@@ -263,19 +253,11 @@ const Upload: React.FC = () => {
               <UploadIcon className="w-8 h-8 text-deep-blue dark:text-blue-400" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-              Drop PDF files here, or select files/folder
+              Drop a folder here, or click to select
             </h3>
             <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Upload PDF documents individually or from an entire folder
+              Select a folder containing PDF documents - all PDFs in the folder will be uploaded as your organization's knowledge base
             </p>
-            <input
-              type="file"
-              multiple
-              accept=".pdf"
-              onChange={handleFileSelect}
-              className="hidden"
-              id="file-upload"
-            />
             <input
               type="file"
               {...({webkitdirectory: "", directory: ""} as any)}
@@ -283,22 +265,13 @@ const Upload: React.FC = () => {
               className="hidden"
               id="folder-upload"
             />
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <label
-                htmlFor="file-upload"
-                className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 cursor-pointer font-medium"
-              >
-                <UploadIcon className="w-5 h-5 mr-2" />
-                Select Files
-              </label>
-              <label
-                htmlFor="folder-upload"
-                className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-slate-700 to-blue-900 text-white rounded-xl hover:from-slate-600 hover:to-blue-800 transition-all duration-200 cursor-pointer font-medium"
-              >
-                <FolderOpen className="w-5 h-5 mr-2" />
-                Select Folder
-              </label>
-            </div>
+            <label
+              htmlFor="folder-upload"
+              className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-900 to-slate-700 text-white rounded-xl hover:from-blue-800 hover:to-slate-600 transition-all duration-200 cursor-pointer font-medium"
+            >
+              <FolderOpen className="w-5 h-5 mr-2" />
+              Select Folder
+            </label>
           </div>
         </div>
 
