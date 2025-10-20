@@ -25,27 +25,30 @@ class OrganizationModel:
         organizations = self.load_all()
         return organizations.get(org_id)
     
-    def create(self, name: str, prompt: str) -> Dict:
+    def create(self, name: str, prompt: str, domain: str = "", industry: str = "", contact_info: Dict = None) -> Dict:
         """Create a new organization"""
         import uuid
-        
+
         organizations = self.load_all()
         org_id = str(uuid.uuid4())
-        
+
         organization = {
             "id": org_id,
             "name": name,
             "prompt": prompt or "You are a helpful AI assistant with comprehensive knowledge about this organization. Provide accurate, helpful responses while maintaining a professional and friendly tone. Always respond in the same language as the user's question. Remember previous conversation context to provide better assistance.",
+            "domain": domain,
+            "industry": industry,
+            "contact_info": contact_info or {},
             "documents": [],
             "created_at": datetime.now().isoformat(),
             "document_count": 0,
             "chat_count": 0,
             "last_activity": None
         }
-        
+
         organizations[org_id] = organization
         self.save_all(organizations)
-        
+
         return organization
     
     def update(self, org_id: str, updates: Dict) -> Optional[Dict]:

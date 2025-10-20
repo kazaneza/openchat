@@ -70,11 +70,30 @@ async def admin_get_organizations():
     return {"organizations": list(organizations.values())}
 
 @app.post("/api/admin/organizations")
-async def admin_create_organization(name: str = Form(...), prompt: str = Form(...)):
+async def admin_create_organization(
+    name: str = Form(...),
+    prompt: str = Form(...),
+    domain: str = Form(""),
+    industry: str = Form(""),
+    contact_email: str = Form(""),
+    contact_phone: str = Form("")
+):
     """Create a new organization (admin only)"""
-    organization = organization_model.create(name, prompt)
-    organization["users"] = []  # Add empty users list for admin response
-    
+    contact_info = {}
+    if contact_email:
+        contact_info['email'] = contact_email
+    if contact_phone:
+        contact_info['phone'] = contact_phone
+
+    organization = organization_model.create(
+        name=name,
+        prompt=prompt,
+        domain=domain,
+        industry=industry,
+        contact_info=contact_info
+    )
+    organization["users"] = []
+
     return {"organization": organization}
 
 @app.delete("/api/admin/organizations/{org_id}")

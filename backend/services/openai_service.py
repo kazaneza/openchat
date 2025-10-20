@@ -89,18 +89,21 @@ class OpenAIService:
             print(f"Error finding similar chunks: {e}")
             return []
     
-    def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True, user_language: str = "en") -> str:
+    def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True, user_language: str = "en", max_tokens: int = None) -> str:
         """Generate AI response using OpenAI GPT with natural language matching"""
         if not self.client:
             return "I'm currently unable to process your request. Please try again later or contact support if the issue persists."
-        
+
         try:
+            # Use provided max_tokens or default
+            tokens_to_use = max_tokens if max_tokens is not None else self.max_tokens
+
             # Simple instruction to match user's language naturally
             language_instruction = "\n\nIMPORTANT: Always respond in the same language as the user's message. Match their language naturally. Never mention documents, knowledge bases, or technical implementation details to users."
-            
+
             # Use the provided system prompt with language enforcement
             final_system_prompt = f"{system_prompt}{language_instruction}"
-            
+
             if is_document_query and context:
                 # Document-specific query with RAG
                 context_addition = f"\n\nAvailable Information:\n{context}\n\nInstructions:\n- Use the provided information to give comprehensive answers\n- If the information doesn't fully address the question, provide what you can and offer to help in other ways\n- Be helpful and polite in your responses\n- Never mention that information comes from documents or databases"
@@ -118,10 +121,10 @@ class OpenAIService:
                     {"role": "system", "content": final_system_prompt},
                     {"role": "user", "content": user_message}
                 ],
-                max_tokens=self.max_tokens,
+                max_tokens=tokens_to_use,
                 temperature=self.temperature
             )
-            
+
             return response.choices[0].message.content
         except Exception as e:
             print(f"OpenAI API Error: {str(e)}")

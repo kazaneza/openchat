@@ -7,6 +7,9 @@ from .prompt_service import PromptService
 from .retrieval_service import RetrievalService
 from .query_understanding_service import QueryUnderstandingService
 from .conversation_context_service import ConversationContextService
+from .domain_filter_service import DomainFilterService
+from .response_length_service import ResponseLengthService
+from .escalation_service import EscalationService
 from models.conversation import ConversationModel
 import traceback
 
@@ -21,6 +24,9 @@ class QueryService:
         self.retrieval_service = RetrievalService()
         self.query_understanding = QueryUnderstandingService()
         self.context_service = ConversationContextService()
+        self.domain_filter = DomainFilterService()
+        self.response_length = ResponseLengthService()
+        self.escalation_service = EscalationService()
 
     def process_query(self, message: str, organization: Dict, user_context: Dict = None, conversation_id: str = None) -> Dict:
         """Process user query with enhanced understanding and RAG"""
@@ -34,6 +40,27 @@ class QueryService:
                 messages = self.conversation_model.get_messages(conversation_id, limit=20)
                 conversation_history = messages
 
+            # Check domain relevance
+            relevance_check = self.domain_filter.is_query_relevant(message, organization)
+            print(f"Domain relevance: {relevance_check['is_relevant']}, "
+                  f"Category: {relevance_check['category']}, "
+                  f"Confidence: {relevance_check['confidence']:.2f}")
+
+            # If query is clearly off-topic, return redirect response
+            if not relevance_check['is_relevant'] and relevance_check['confidence'] > 0.7:
+                off_topic_response = self.domain_filter.get_off_topic_response(
+                    message, organization, relevance_check
+                )
+                return {
+                    "response": off_topic_response,
+                    "conversation_id": conversation_id,
+                    "query_type": "off_topic",
+                    "sources": [],
+                    "confidence_score": 0.0,
+                    "off_topic": True,
+                    "relevance_check": relevance_check
+                }
+
             # Analyze query with enhanced understanding
             documents = organization.get("documents", [])
             query_analysis = self.query_understanding.analyze_query(
@@ -41,6 +68,12 @@ class QueryService:
                 conversation_history=conversation_history,
                 available_documents=len(documents)
             )
+
+            # Determine appropriate response length
+            appropriate_length = self.response_length.determine_appropriate_length(
+                message, query_analysis
+            )
+            print(f"Appropriate response length: {appropriate_length} tokens")
 
             print(f"Query Analysis: Intent={query_analysis['intent']['primary_intent']}, "
                   f"Follow-up={query_analysis['follow_up']['is_follow_up']}, "
@@ -122,14 +155,37 @@ class QueryService:
             if not documents or primary_intent in ['general_inquiry', 'opinion_recommendation']:
                 # Handle general queries or no documents
                 response = self._handle_general_query(
-                    query_to_process, organization, primary_intent, user_context, conversation_context
+                    query_to_process, organization, primary_intent, user_context, conversation_context, appropriate_length
                 )
                 confidence_score = 0.7
             else:
                 # Handle document-specific queries with RAG
                 response, sources, confidence_score = self._handle_document_query(
-                    query_to_process, organization, documents, user_context, conversation_context, query_analysis
+                    query_to_process, organization, documents, user_context, conversation_context, query_analysis, appropriate_length
                 )
+
+            # Check if escalation is needed
+            escalation_check = self.escalation_service.should_escalate(
+                query=message,
+                confidence_score=confidence_score,
+                sources=sources,
+                query_analysis=query_analysis
+            )
+
+            print(f"Escalation check: should_escalate={escalation_check['should_escalate']}, "
+                  f"urgency={escalation_check['urgency']}")
+
+            # If escalation is needed, modify response
+            if escalation_check['should_escalate']:
+                escalation_response = self.escalation_service.create_escalation_response(
+                    escalation_check, organization
+                )
+
+                # Append escalation message to the original response
+                if confidence_score > 0.3:
+                    response = f"{response}\n\n{escalation_response}"
+                else:
+                    response = escalation_response
 
             # Add assistant response to conversation
             if conversation_id:
@@ -142,7 +198,9 @@ class QueryService:
                         "sources": sources,
                         "confidence_score": confidence_score,
                         "intent_info": query_analysis['intent'],
-                        "is_follow_up": query_analysis['follow_up']['is_follow_up']
+                        "is_follow_up": query_analysis['follow_up']['is_follow_up'],
+                        "escalated": escalation_check['should_escalate'],
+                        "escalation_reasons": escalation_check.get('escalation_reasons', [])
                     }
                 )
 
@@ -152,7 +210,8 @@ class QueryService:
                 "query_type": primary_intent,
                 "sources": sources,
                 "confidence_score": confidence_score,
-                "query_analysis": query_analysis
+                "query_analysis": query_analysis,
+                "escalation": escalation_check if escalation_check['should_escalate'] else None
             }
 
         except Exception as e:
@@ -166,9 +225,9 @@ class QueryService:
                 "confidence_score": 0.0
             }
 
-    def _handle_general_query(self, message: str, organization: Dict, query_type: str, user_context: Dict = None, conversation_context: str = "") -> str:
+    def _handle_general_query(self, message: str, organization: Dict, query_type: str, user_context: Dict = None, conversation_context: str = "", max_tokens: int = 250) -> str:
         """Handle general queries without document context"""
-        base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("general_assistant")
+        base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("customer_support")
 
         # Create contextual prompt
         system_prompt = self.prompt_service.create_contextual_prompt(
@@ -182,14 +241,27 @@ class QueryService:
         if conversation_context:
             system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
 
+        # Add length instruction
+        length_instruction = self.response_length.create_length_instruction(max_tokens)
+        system_prompt += length_instruction
+
+        # Add domain info if available
+        org_domain = organization.get('domain', '')
+        org_industry = organization.get('industry', '')
+        if org_domain or org_industry:
+            domain_info = f"\n\nOrganization domain/industry: {org_domain or org_industry}"
+            domain_info += "\nREMINDER: Only answer questions related to this domain. Politely redirect off-topic questions."
+            system_prompt += domain_info
+
         return self.openai_service.generate_response(
             system_prompt=system_prompt,
             user_message=message,
             context="",
-            is_document_query=False
+            is_document_query=False,
+            max_tokens=max_tokens
         )
 
-    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "", query_analysis: Dict = None) -> Tuple[str, List[Dict], float]:
+    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "", query_analysis: Dict = None, max_tokens: int = 400) -> Tuple[str, List[Dict], float]:
         """Handle document-specific queries using enhanced RAG - returns (response, sources, confidence)"""
         try:
             # Use provided query analysis or analyze query complexity
@@ -294,7 +366,7 @@ class QueryService:
             context = self._prepare_context_from_chunks(final_results)
 
             # Generate response
-            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
+            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("customer_support")
             system_prompt = self.prompt_service.create_contextual_prompt(
                 base_prompt=base_prompt,
                 organization_name=organization["name"],
@@ -314,11 +386,24 @@ class QueryService:
             if query_analysis.get('follow_up', {}).get('is_follow_up'):
                 system_prompt += "\n\nNote: This is a follow-up question. Use the conversation context to understand references like 'it', 'that', 'the document', etc."
 
+            # Add length instruction
+            length_instruction = self.response_length.create_length_instruction(max_tokens)
+            system_prompt += length_instruction
+
+            # Add domain info if available
+            org_domain = organization.get('domain', '')
+            org_industry = organization.get('industry', '')
+            if org_domain or org_industry:
+                domain_info = f"\n\nOrganization domain/industry: {org_domain or org_industry}"
+                domain_info += "\nREMINDER: Focus on information relevant to this domain."
+                system_prompt += domain_info
+
             response = self.openai_service.generate_response(
                 system_prompt=system_prompt,
                 user_message=message,
                 context=context,
-                is_document_query=True
+                is_document_query=True,
+                max_tokens=max_tokens
             )
 
             return response, sources, confidence_score
