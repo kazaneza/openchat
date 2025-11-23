@@ -106,11 +106,16 @@ class VectorService:
             metadatas = results['metadatas'][0]
             distances = results['distances'][0]
             
+            # Use a very lenient threshold at ChromaDB level - let filtering logic handle strict filtering
+            # Only filter out clearly irrelevant results (similarity < 0.05)
+            min_threshold = 0.05
+            effective_threshold = max(similarity_threshold, min_threshold)
+            
             for doc, metadata, distance in zip(documents, metadatas, distances):
                 # Convert distance to similarity score (ChromaDB uses cosine distance)
                 similarity = 1 - distance
 
-                if similarity >= similarity_threshold:
+                if similarity >= effective_threshold:
                     # Parse pages from JSON
                     pages = []
                     if "pages" in metadata:
@@ -133,6 +138,37 @@ class VectorService:
                         "page_start": metadata.get("page_start", 0),
                         "page_end": metadata.get("page_end", 0)
                     })
+            
+            # If we got very few results, be more lenient and include lower similarity results
+            if len(similar_chunks) < min(3, top_k // 2) and len(documents) > len(similar_chunks):
+                # Include additional lower similarity results
+                for doc, metadata, distance in zip(documents, metadatas, distances):
+                    similarity = 1 - distance
+                    # Check if we already have this chunk
+                    chunk_id = metadata.get("chunk_id")
+                    if similarity >= 0.05 and not any(c.get("chunk_id") == chunk_id for c in similar_chunks):
+                        pages = []
+                        if "pages" in metadata:
+                            try:
+                                pages = json.loads(metadata["pages"])
+                            except:
+                                pages = []
+                        similar_chunks.append({
+                            "text": doc,
+                            "document_id": metadata["document_id"],
+                            "document_name": metadata["document_name"],
+                            "chunk_index": metadata["chunk_index"],
+                            "chunk_id": chunk_id,
+                            "similarity": similarity,
+                            "distance": distance,
+                            "timestamp": metadata.get("timestamp"),
+                            "token_count": metadata.get("token_count", 0),
+                            "pages": pages,
+                            "page_start": metadata.get("page_start", 0),
+                            "page_end": metadata.get("page_end", 0)
+                        })
+                        if len(similar_chunks) >= min(3, top_k):
+                            break
             
             print(f"Found {len(similar_chunks)} similar chunks (threshold: {similarity_threshold})")
             return similar_chunks

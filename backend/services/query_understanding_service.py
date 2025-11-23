@@ -32,7 +32,8 @@ class QueryUnderstandingService:
             ],
             'specific_value': [
                 r'\bprice\b', r'\bcost\b', r'\bdate\b', r'\bnumber\b',
-                r'\bversion\b', r'\bsize\b', r'\bquantity\b'
+                r'\bversion\b', r'\bsize\b', r'\bquantity\b', r'\bhow many\b',
+                r'\bhow much\b', r'\bcount\b', r'\btotal\b', r'\bamount\b'
             ],
             'opinion_recommendation': [
                 r'\bshould i\b', r'\brecommend\b', r'\bsuggestion\b',

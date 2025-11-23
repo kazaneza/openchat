@@ -43,3 +43,34 @@ export interface ChatMessage {
   response: string;
   timestamp: string;
 }
+
+export interface ConversationMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  metadata?: {
+    query_type?: string;
+    sources?: Array<{
+      document_name: string;
+      page_display: string;
+      similarity: number;
+      chunk_preview: string;
+    }>;
+    confidence_score?: number;
+    needs_clarification?: boolean;
+    [key: string]: any;
+  };
+}
+
+export interface Conversation {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  is_active?: boolean;
+}

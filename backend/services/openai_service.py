@@ -104,12 +104,43 @@ class OpenAIService:
             # Use the provided system prompt with language enforcement
             final_system_prompt = f"{system_prompt}{language_instruction}"
 
-            if is_document_query and context:
+            if is_document_query:
                 # Document-specific query with RAG
-                context_addition = f"\n\nAvailable Information:\n{context}\n\nInstructions:\n- Use the provided information to give comprehensive answers\n- If the information doesn't fully address the question, provide what you can and offer to help in other ways\n- Be helpful and polite in your responses\n- Never mention that information comes from documents or databases"
-                final_system_prompt += context_addition
+                if context and context.strip():
+                    # We have context - add RAG instructions with context
+                    context_addition = f"""
+=== AVAILABLE INFORMATION ===
+{context}
+
+=== CRITICAL INSTRUCTIONS ===
+1. **ONLY use the information provided above** to answer the question
+2. **DO NOT use your general knowledge** or training data - ONLY use what's in the "Available Information" section
+3. **If the answer is not in the provided information**, you MUST say: "I don't have that information in the available documents" or "Based on the information provided, I cannot find details about [specific topic]"
+4. **DO NOT guess, speculate, or make up information** - if it's not in the provided context, you don't know it
+5. **If the information partially answers the question**, provide what you can from the context and acknowledge any gaps
+6. Be helpful and polite, but always be honest about what information you have access to
+7. Never mention "documents", "knowledge base", or technical implementation details to users
+8. If asked about something not in the provided information, politely redirect: "I don't have that specific information available. Is there something else I can help you with based on the information I have access to?"
+
+Remember: Your ONLY source of information is what's provided above. If it's not there, you don't know it."""
+                    final_system_prompt += context_addition
+                else:
+                    # No context found - explicitly tell model to say "I don't know"
+                    no_context_addition = f"""
+=== NO INFORMATION FOUND ===
+No relevant information was found in the available documents for this query.
+
+=== CRITICAL INSTRUCTIONS ===
+1. You MUST respond that you don't have that information available
+2. DO NOT use your general knowledge to answer
+3. DO NOT guess or make up information
+4. Say something like: "I don't have that specific information in the available documents. Could you rephrase your question or ask about something else?"
+5. Be polite and helpful, but honest about the lack of information
+
+Remember: If information is not in the documents, you don't know it. Never use general knowledge."""
+                    final_system_prompt += no_context_addition
             else:
-                # General query
+                # General query (not document-specific)
                 if context:
                     final_system_prompt += f"\n\nAdditional context: {context}"
                 else:

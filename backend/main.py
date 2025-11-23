@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +22,7 @@ from services.response_quality_service import ResponseQualityService
 from models.organization import OrganizationModel
 from models.user import UserModel
 from models.feedback import FeedbackModel
+from models.conversation import ConversationModel
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +41,7 @@ response_quality_service = ResponseQualityService()
 feedback_model = FeedbackModel()
 organization_model = OrganizationModel()
 user_model = UserModel()
+conversation_model = ConversationModel()
 
 app = FastAPI(title="PDF Chat API", version="1.0.0")
 
@@ -231,52 +233,94 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
         raise HTTPException(status_code=403, detail="Access denied")
     
     uploaded_docs = []
+    errors = []
     
     for file in files:
         print(f"Processing file: {file.filename}")
-        if not file.filename.lower().endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
         
-        # Read file content
-        content = await file.read()
-        print(f"File size: {len(content)} bytes")
+        # Check if file is PDF
+        if not file.filename or not file.filename.lower().endswith('.pdf'):
+            error_msg = f"File '{file.filename}' is not a PDF file. Only PDF files are allowed."
+            print(error_msg)
+            errors.append(error_msg)
+            continue  # Skip this file but continue with others
         
-        # Extract text from PDF with page information
         try:
-            text_content, page_texts = document_service.extract_text_from_pdf(content)
-            print(f"Extracted text length: {len(text_content)} characters from {len(page_texts)} pages")
-        except Exception as e:
-            print(f"PDF extraction error: {str(e)}")
-            raise HTTPException(status_code=400, detail=str(e))
+            # Read file content
+            content = await file.read()
+            print(f"File size: {len(content)} bytes")
+            
+            if len(content) == 0:
+                error_msg = f"File '{file.filename}' is empty."
+                print(error_msg)
+                errors.append(error_msg)
+                continue
+            
+            # Extract text from PDF with page information
+            try:
+                text_content, page_texts = document_service.extract_text_from_pdf(content)
+                print(f"Extracted text length: {len(text_content)} characters from {len(page_texts)} pages")
+            except Exception as e:
+                error_msg = f"Failed to extract text from '{file.filename}': {str(e)}"
+                print(f"PDF extraction error: {error_msg}")
+                errors.append(error_msg)
+                continue
 
-        # Chunk the text with page tracking
-        chunks = document_service.chunk_text(text_content, page_texts=page_texts)
-        print(f"Created {len(chunks)} chunks with page information")
+            # Chunk the text with page tracking
+            chunks = document_service.chunk_text(text_content, page_texts=page_texts)
+            print(f"Created {len(chunks)} chunks with page information")
 
-        # Save document
-        try:
-            document = document_service.save_document(content, file.filename, text_content, chunks, page_texts)
-            print(f"Document saved: {document['id']}")
+            # Save document
+            try:
+                document = document_service.save_document(content, file.filename, text_content, chunks, page_texts)
+                print(f"Document saved: {document['id']}")
+            except Exception as e:
+                error_msg = f"Failed to save '{file.filename}': {str(e)}"
+                print(f"File save error: {error_msg}")
+                errors.append(error_msg)
+                continue
+            
+            # Generate embeddings for the document
+            try:
+                document = embedding_service.generate_embeddings_for_document(document, org_id)
+            except Exception as e:
+                error_msg = f"Failed to generate embeddings for '{file.filename}': {str(e)}"
+                print(f"Embedding error: {error_msg}")
+                errors.append(error_msg)
+                continue
+            
+            # Add document to organization
+            organization_model.add_document(org_id, document)
+            uploaded_docs.append(document)
+            print(f"Document added: {file.filename}")
+        
         except Exception as e:
-            print(f"File save error: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
-        
-        # Generate embeddings for the document
-        document = embedding_service.generate_embeddings_for_document(document, org_id)
-        
-        # Add document to organization
-        organization_model.add_document(org_id, document)
-        uploaded_docs.append(document)
-        print(f"Document added: {file.filename}")
+            error_msg = f"Unexpected error processing '{file.filename}': {str(e)}"
+            print(f"Error: {error_msg}")
+            errors.append(error_msg)
+            continue
     
     # Get updated organization
     updated_organization = organization_model.get_by_id(org_id)
     print(f"Upload complete. Total documents: {updated_organization['document_count']}")
+    print(f"Successfully uploaded: {len(uploaded_docs)} files")
+    if errors:
+        print(f"Errors encountered: {len(errors)} files failed")
     
-    return {"uploaded_documents": uploaded_docs}
+    # Return results with any errors
+    response = {"uploaded_documents": uploaded_docs}
+    if errors:
+        response["errors"] = errors
+        response["message"] = f"Uploaded {len(uploaded_docs)} files successfully. {len(errors)} file(s) failed."
+    
+    if len(uploaded_docs) == 0 and len(errors) > 0:
+        # If all files failed, return 400
+        raise HTTPException(status_code=400, detail=f"All files failed to upload. Errors: {'; '.join(errors)}")
+    
+    return response
 
 @app.post("/api/organizations/{org_id}/chat")
-async def chat_with_documents(org_id: str, message: str = Form(...), user_id: str = Form(...)):
+async def chat_with_documents(org_id: str, message: str = Form(...), user_id: str = Form(...), conversation_id: Optional[str] = Form(None)):
     """Chat with the documents in an organization"""
     try:
         organization = organization_model.get_by_id(org_id)
@@ -288,17 +332,26 @@ async def chat_with_documents(org_id: str, message: str = Form(...), user_id: st
         if not user or user['organization_id'] != org_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
+        # Debug: Check if organization has documents
+        documents = organization.get("documents", [])
+        document_count = organization.get("document_count", 0)
+        print(f"Organization '{organization.get('name')}' has {document_count} documents (array length: {len(documents)})")
+        if documents:
+            print(f"Sample document IDs: {[doc.get('id', 'no-id')[:8] for doc in documents[:3]]}")
+        else:
+            print("WARNING: Organization has no documents in the documents array!")
+        
         # Process query using the new query service
-        ai_response = query_service.process_query(message, organization, {"user_id": user_id})
+        user_context = {"user_id": user_id}
+        if conversation_id:
+            user_context["conversation_id"] = conversation_id
+        ai_response = query_service.process_query(message, organization, user_context, conversation_id)
         
         # Update organization stats
         organization_model.increment_chat_count(org_id)
         
-        return {
-            "response": ai_response,
-            "document_count": len(organization["documents"]),
-            "organization_name": organization["name"]
-        }
+        # Return the ai_response directly (it already has response, conversation_id, etc.)
+        return ai_response
     except HTTPException:
         raise
     except Exception as e:
@@ -369,6 +422,102 @@ async def delete_document(org_id: str, doc_id: str, user_id: str = Form(...)):
     print(f"Document {doc_to_delete['filename']} deleted successfully")
 
     return {"message": "Document deleted successfully"}
+
+# Conversation endpoints
+@app.get("/api/conversations/{user_id}")
+async def get_user_conversations(user_id: str, org_id: str = Query(..., alias="org_id")):
+    """Get all conversations for a user in an organization"""
+    try:
+        # Verify user exists and belongs to organization
+        user = user_model.get_by_id(user_id)
+        if not user or user['organization_id'] != org_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        conversations = conversation_model.get_user_conversations(org_id, user_id)
+        return {"conversations": conversations}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/conversations/{conversation_id}/messages")
+async def get_conversation_messages(conversation_id: str, user_id: str = Query(..., alias="user_id")):
+    """Get messages from a conversation"""
+    try:
+        # Verify user has access to this conversation
+        conversation = conversation_model.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        user = user_model.get_by_id(user_id)
+        if not user or conversation['user_id'] != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        messages = conversation_model.get_messages(conversation_id)
+        return {
+            "conversation": {
+                "id": conversation['id'],
+                "title": conversation.get('title', 'New Conversation'),
+                "message_count": conversation.get('message_count', 0),
+                "created_at": conversation.get('created_at'),
+                "updated_at": conversation.get('updated_at')
+            },
+            "messages": messages
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, user_id: str = Form(...)):
+    """Delete a conversation"""
+    try:
+        # Verify user has access to this conversation
+        conversation = conversation_model.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        user = user_model.get_by_id(user_id)
+        if not user or conversation['user_id'] != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        success = conversation_model.delete_conversation(conversation_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete conversation")
+        
+        return {"message": "Conversation deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/conversations/{conversation_id}/title")
+async def update_conversation_title(conversation_id: str, user_id: str = Form(...), title: str = Form(...)):
+    """Update conversation title"""
+    try:
+        # Verify user has access to this conversation
+        conversation = conversation_model.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        user = user_model.get_by_id(user_id)
+        if not user or conversation['user_id'] != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        updated = conversation_model.update_conversation(conversation_id, {"title": title})
+        if not updated:
+            raise HTTPException(status_code=500, detail="Failed to update conversation")
+        
+        return {"conversation": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating conversation title: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Feedback endpoints
 @app.post("/api/feedback/thumbs-up")

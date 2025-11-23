@@ -245,7 +245,20 @@ class ConversationService:
         # Update sources if provided in metadata
         if metadata and 'sources' in metadata:
             existing_sources = set(conversation['metadata'].get('sources_used', []))
-            new_sources = set(metadata['sources'])
+            
+            # Extract document IDs from sources (sources is a list of dicts)
+            sources_list = metadata['sources']
+            if sources_list and len(sources_list) > 0:
+                # Check if first item is a dict (sources are dicts with document_id)
+                if isinstance(sources_list[0], dict):
+                    # Extract document_id from each source dict
+                    new_sources = {source.get('document_id') for source in sources_list if source.get('document_id')}
+                else:
+                    # Sources are already strings/IDs
+                    new_sources = set(sources_list)
+            else:
+                new_sources = set()
+            
             conversation['metadata']['sources_used'] = list(existing_sources | new_sources)
 
         # Auto-generate title from first user message if still "New Conversation"

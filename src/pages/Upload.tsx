@@ -112,6 +112,19 @@ const Upload: React.FC = () => {
     setUploading(true);
     try {
       const response = await organizationApi.uploadDocuments(currentOrganization.id, files);
+      
+      // Check if there were any errors
+      if (response.errors && response.errors.length > 0) {
+        const errorMessage = response.errors.join('\n');
+        const successCount = response.uploaded_documents?.length || 0;
+        if (successCount > 0) {
+          alert(`Successfully uploaded ${successCount} file(s).\n\nSome files failed:\n${errorMessage}`);
+        } else {
+          alert(`All files failed to upload:\n\n${errorMessage}`);
+          setUploading(false);
+          return;
+        }
+      }
       console.log('Upload response:', response);
       
       // Refresh organization data to get updated document count
@@ -132,9 +145,10 @@ const Upload: React.FC = () => {
       await loadDocuments();
       
       setTimeout(() => setUploadComplete(false), 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to upload files:', error);
-      alert('Failed to upload files. Please check the console for details.');
+      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
+      alert(`Failed to upload files: ${errorMessage}`);
     } finally {
       setUploading(false);
     }

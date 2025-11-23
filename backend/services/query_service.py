@@ -63,6 +63,12 @@ class QueryService:
 
             # Analyze query with enhanced understanding
             documents = organization.get("documents", [])
+            print(f"QueryService: Processing query with {len(documents)} documents available")
+            if not documents:
+                print(f"WARNING: No documents found in organization! Organization ID: {org_id}")
+                print(f"Organization keys: {list(organization.keys())}")
+                print(f"Document count field: {organization.get('document_count', 'not set')}")
+            
             query_analysis = self.query_understanding.analyze_query(
                 message,
                 conversation_history=conversation_history,
@@ -152,16 +158,37 @@ class QueryService:
             confidence_score = 0.0
             primary_intent = query_analysis['intent']['primary_intent']
 
-            if not documents or primary_intent in ['general_inquiry', 'opinion_recommendation']:
-                # Handle general queries or no documents
+            print(f"Processing query - Documents available: {len(documents)}, Primary intent: {primary_intent}")
+            
+            # Check if this is a simple greeting that should always use general handler
+            original_query_lower = message.lower().strip()
+            is_greeting = any(original_query_lower == pattern or original_query_lower.startswith(pattern + ' ') 
+                            for pattern in ['hey', 'hi', 'hello', 'greetings', 'good morning', 'good afternoon', 'good evening'])
+            
+            # Domain-aware query routing
+            # Determine if document handler should be used based on domain, intent, and documents
+            use_document_handler = False if is_greeting else self._should_use_document_handler(
+                query_analysis, organization, documents
+            )
+            
+            if is_greeting:
+                print("Detected greeting, using general query handler")
+            
+            if not documents or not use_document_handler:
+                if not documents:
+                    print("WARNING: No documents available, using general query handler")
+                else:
+                    print(f"Using general query handler (domain-aware routing decision)")
                 response = self._handle_general_query(
                     query_to_process, organization, primary_intent, user_context, conversation_context, appropriate_length
                 )
                 confidence_score = 0.7
             else:
                 # Handle document-specific queries with RAG
+                print(f"Using document query handler with {len(documents)} documents (intent: {primary_intent})")
+                # Pass both original and enhanced query - use enhanced for embedding search
                 response, sources, confidence_score = self._handle_document_query(
-                    query_to_process, organization, documents, user_context, conversation_context, query_analysis, appropriate_length
+                    query_to_process, organization, documents, user_context, conversation_context, query_analysis, appropriate_length, original_query=message
                 )
 
             # Check if escalation is needed
@@ -227,46 +254,140 @@ class QueryService:
 
     def _handle_general_query(self, message: str, organization: Dict, query_type: str, user_context: Dict = None, conversation_context: str = "", max_tokens: int = 250) -> str:
         """Handle general queries without document context"""
-        base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("customer_support")
+        try:
+            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("customer_support")
 
-        # Create contextual prompt
-        system_prompt = self.prompt_service.create_contextual_prompt(
-            base_prompt=base_prompt,
-            organization_name=organization["name"],
-            document_count=len(organization.get("documents", [])),
-            context_type="general"
-        )
+            # Create contextual prompt
+            system_prompt = self.prompt_service.create_contextual_prompt(
+                base_prompt=base_prompt,
+                organization_name=organization["name"],
+                document_count=len(organization.get("documents", [])),
+                context_type="general"
+            )
 
-        # Add conversation context
-        if conversation_context:
-            system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
+            # Add conversation context
+            if conversation_context:
+                system_prompt += f"\n\nPrevious conversation context:\n{conversation_context}"
 
-        # Add length instruction
-        length_instruction = self.response_length.create_length_instruction(max_tokens)
-        system_prompt += length_instruction
+            # Add length instruction
+            length_instruction = self.response_length.create_length_instruction(max_tokens)
+            system_prompt += length_instruction
 
-        # Add domain info if available
-        org_domain = organization.get('domain', '')
-        org_industry = organization.get('industry', '')
-        if org_domain or org_industry:
-            domain_info = f"\n\nOrganization domain/industry: {org_domain or org_industry}"
-            domain_info += "\nREMINDER: Only answer questions related to this domain. Politely redirect off-topic questions."
-            system_prompt += domain_info
+            # Add domain info if available
+            org_domain = organization.get('domain', '')
+            org_industry = organization.get('industry', '')
+            if org_domain or org_industry:
+                domain_info = f"\n\nOrganization domain/industry: {org_domain or org_industry}"
+                domain_info += "\nREMINDER: Only answer questions related to this domain. Politely redirect off-topic questions."
+                system_prompt += domain_info
 
-        return self.openai_service.generate_response(
-            system_prompt=system_prompt,
-            user_message=message,
-            context="",
-            is_document_query=False,
-            max_tokens=max_tokens
-        )
+            response = self.openai_service.generate_response(
+                system_prompt=system_prompt,
+                user_message=message,
+                context="",
+                is_document_query=False,
+                max_tokens=max_tokens
+            )
+            
+            # Ensure we always return a response
+            if not response or response.strip() == "":
+                return f"Hello! How can I assist you with {organization.get('name', 'your organization')} today?"
+            
+            return response
+        except Exception as e:
+            print(f"Error in general query handler: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback response
+            return f"Hello! How can I assist you with {organization.get('name', 'your organization')} today?"
 
-    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "", query_analysis: Dict = None, max_tokens: int = 400) -> Tuple[str, List[Dict], float]:
+    def _handle_document_query(self, message: str, organization: Dict, documents: List[Dict], user_context: Dict = None, conversation_context: str = "", query_analysis: Dict = None, max_tokens: int = 400, original_query: str = None) -> Tuple[str, List[Dict], float]:
         """Handle document-specific queries using enhanced RAG - returns (response, sources, confidence)"""
         try:
             # Use provided query analysis or analyze query complexity
             if not query_analysis:
                 query_analysis = {'intent': {'primary_intent': 'general_inquiry'}}
+
+            # Check for document/policy listing queries (count, list, enumerate)
+            message_lower = message.lower()
+            count_keywords = ['how many', 'count', 'number of', 'total number', 'how much']
+            list_keywords = ['list', 'show', 'enumerate', 'all of them', 'all of', 'what are', 'what are the']
+            is_count_query = any(keyword in message_lower for keyword in count_keywords)
+            is_list_query = any(keyword in message_lower for keyword in list_keywords)
+            
+            # Check for policy-related terms (including variations)
+            policy_terms = ['document', 'policy', 'policies', 'file', 'files', 'it policy', 'it policies', 'them']
+            has_policy_term = any(term in message_lower for term in policy_terms)
+            
+            # Handle count queries
+            if is_count_query and has_policy_term:
+                doc_count = len(documents)
+                # Filter documents that match the query (e.g., "IT policies")
+                if 'policy' in message_lower or 'policies' in message_lower:
+                    # Count policy documents
+                    policy_docs = [d for d in documents if 'policy' in d.get('filename', '').lower()]
+                    count = len(policy_docs)
+                    doc_list = [d.get('filename', 'Unknown') for d in policy_docs[:10]]  # First 10 for context
+                    
+                    if count > 0:
+                        response = f"There are {count} IT policy document(s) available."
+                        if count <= 10:
+                            response += f" They are: {', '.join(doc_list)}"
+                        else:
+                            response += f" Some examples: {', '.join(doc_list[:5])}, and {count - 5} more."
+                        
+                        sources = [{"document_id": d.get("id"), "document_name": d.get("filename")} for d in policy_docs[:5]]
+                        return response, sources, 0.9
+                    else:
+                        response = f"There are {doc_count} total documents available, but no specific policy documents were found matching your query."
+                        return response, [], 0.7
+                else:
+                    # General document count
+                    response = f"There are {doc_count} document(s) available in the knowledge base."
+                    sources = [{"document_id": d.get("id"), "document_name": d.get("filename")} for d in documents[:5]]
+                    return response, sources, 0.9
+            
+            # Handle list/enumeration queries about documents/policies
+            if is_list_query and (has_policy_term or 'them' in message_lower or 'all' in message_lower):
+                # Check conversation context to understand what "them" refers to
+                previous_context_mentions_policies = False
+                if conversation_context:
+                    context_lower = conversation_context.lower()
+                    previous_context_mentions_policies = any(term in context_lower for term in ['policy', 'policies', 'it policy'])
+                
+                # Determine if we should list policies or all documents
+                should_list_policies = (
+                    'policy' in message_lower or 
+                    'policies' in message_lower or 
+                    'it policy' in message_lower or
+                    (('them' in message_lower or 'all' in message_lower) and previous_context_mentions_policies)
+                )
+                
+                # Check if it's asking for all policies/documents
+                if 'all' in message_lower or 'them' in message_lower or 'list' in message_lower:
+                    if should_list_policies:
+                        # Filter policy documents
+                        policy_docs = [d for d in documents if 'policy' in d.get('filename', '').lower()]
+                        if policy_docs:
+                            # Create a numbered list of all policy documents
+                            doc_list = []
+                            for i, doc in enumerate(policy_docs, 1):
+                                doc_name = doc.get('filename', 'Unknown Document')
+                                doc_list.append(f"{i}. {doc_name}")
+                            
+                            response = f"Here are all {len(policy_docs)} IT policy documents:\n\n" + "\n".join(doc_list)
+                            sources = [{"document_id": d.get("id"), "document_name": d.get("filename"), "similarity": 1.0} for d in policy_docs]
+                            return response, sources, 0.95
+                    else:
+                        # List all documents
+                        doc_list = []
+                        for i, doc in enumerate(documents, 1):
+                            doc_name = doc.get('filename', 'Unknown Document')
+                            doc_list.append(f"{i}. {doc_name}")
+                        
+                        response = f"Here are all {len(documents)} documents in the knowledge base:\n\n" + "\n".join(doc_list)
+                        sources = [{"document_id": d.get("id"), "document_name": d.get("filename"), "similarity": 1.0} for d in documents]
+                        return response, sources, 0.95
 
             complexity_analysis = self.retrieval_service.analyze_query_complexity(message)
             print(f"Complexity analysis: {complexity_analysis}")
@@ -279,18 +400,72 @@ class QueryService:
             organization_id = organization["id"]
             documents = self.embedding_service.update_document_embeddings(documents, organization_id)
 
-            # Get query embedding
-            query_embedding = self.openai_service.get_single_embedding(message)
+            # Get query embedding - clean up the query first
+            # Use original query if available, otherwise use the enhanced query
+            import re
+            
+            # Clean up malformed queries (remove duplicate words, clean up context markers)
+            query_for_embedding = original_query if original_query else message
+            
+            # If the enhanced query has a resolved context prefix, extract the actual query part
+            # Format: "[Referring to: IT policies] how many are they?"
+            if "[Referring to:" in query_for_embedding:
+                # Extract the entity and the query
+                match = re.search(r'\[Referring to: ([^\]]+)\]\s*(.+)', query_for_embedding)
+                if match:
+                    entity = match.group(1).strip()
+                    query_part = match.group(2).strip()
+                    # Clean up query part - remove duplicate words
+                    query_words = query_part.split()
+                    # Remove consecutive duplicates
+                    cleaned_words = []
+                    prev_word = None
+                    for word in query_words:
+                        if word.lower() != prev_word:
+                            cleaned_words.append(word)
+                            prev_word = word.lower()
+                    query_part = ' '.join(cleaned_words)
+                    # Use the entity + cleaned query for better semantic search
+                    query_for_embedding = f"{entity} {query_part}".strip()
+                    print(f"Extracted and cleaned query for embedding: {query_for_embedding[:100]}...")
+            
+            # Additional cleanup: remove common stop words that might cause issues
+            # Remove "today" if it appears multiple times or at the end
+            query_for_embedding = re.sub(r'\btoday\b\s+\btoday\b', 'today', query_for_embedding, flags=re.IGNORECASE)
+            query_for_embedding = re.sub(r'\s+\btoday\s*$', '', query_for_embedding, flags=re.IGNORECASE)
+            
+            # Remove duplicate consecutive words
+            words = query_for_embedding.split()
+            cleaned_words = []
+            prev_word = None
+            for word in words:
+                if word.lower() != prev_word:
+                    cleaned_words.append(word)
+                    prev_word = word.lower()
+            query_for_embedding = ' '.join(cleaned_words).strip()
+            
+            query_embedding = self.openai_service.get_single_embedding(query_for_embedding)
             if not query_embedding:
                 response = self._fallback_keyword_search(message, organization, documents, organization_id)
                 return response, [], 0.3
 
             # Search for similar chunks using ChromaDB with adaptive top_k
+            print(f"Searching ChromaDB for organization_id: {organization_id}, top_k: {retrieval_params['top_k']}")
+            print(f"Query for embedding: {query_for_embedding[:100]}...")
             semantic_results = self.embedding_service.search_similar_chunks(
                 query_embedding=query_embedding,
                 organization_id=organization_id,
                 top_k=retrieval_params['top_k']
             )
+            print(f"ChromaDB search returned {len(semantic_results)} results")
+            if semantic_results:
+                print(f"Sample result: document_id={semantic_results[0].get('document_id', 'unknown')}, similarity={semantic_results[0].get('similarity', 0):.3f}")
+            else:
+                print("WARNING: No results from ChromaDB search!")
+                print(f"Checking if documents have chunks...")
+                for doc in documents[:3]:
+                    chunks = doc.get("chunks", [])
+                    print(f"  Document {doc.get('filename', 'unknown')}: {len(chunks)} chunks")
 
             if not semantic_results:
                 print("No similar chunks found in ChromaDB, falling back to keyword search")
@@ -315,6 +490,7 @@ class QueryService:
                         'chunk_id': f"{doc.get('id', '')}_{i}",
                         'pages': chunk.get('pages', []) if isinstance(chunk, dict) else []
                     })
+            print(f"Total chunks prepared: {len(all_chunks)} from {len(documents)} documents")
 
             # Perform hybrid search
             hybrid_results = self.retrieval_service.hybrid_search(
@@ -364,15 +540,33 @@ class QueryService:
 
             # Prepare context from final results
             context = self._prepare_context_from_chunks(final_results)
+            
+            # Log context for debugging
+            if context and context.strip():
+                print(f"Context prepared: {len(context)} characters, {len(final_results)} chunks")
+                print(f"Sample context (first 200 chars): {context[:200]}...")
+            else:
+                print("WARNING: No context prepared from chunks! Context will be empty string.")
+                context = ""  # Ensure it's empty string, not None
 
             # Generate response
-            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("customer_support")
+            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
             system_prompt = self.prompt_service.create_contextual_prompt(
                 base_prompt=base_prompt,
                 organization_name=organization["name"],
                 document_count=len(documents),
                 context_type="document"
             )
+
+            # Add explicit RAG instruction at the top
+            rag_instruction = f"""
+=== RAG INSTRUCTIONS ===
+You have access to {len(final_results)} relevant information passages retrieved from {len(documents)} documents.
+Your response MUST be based EXCLUSIVELY on the information provided in the "Available Information" section below.
+If the answer is not in the provided information, you MUST say you don't have that information.
+DO NOT use general knowledge or make assumptions.
+"""
+            system_prompt = rag_instruction + system_prompt
 
             # Add structured conversation context
             if conversation_context:
@@ -432,56 +626,159 @@ class QueryService:
                     else:
                         page_display = f"pages {pages[0]}-{pages[-1]}"
 
+                # Handle similarity - ensure it's a valid number
+                similarity = chunk.get('similarity', 0)
+                if similarity is None or (isinstance(similarity, float) and (similarity != similarity)):  # Check for NaN
+                    similarity = 1.0  # Default to 1.0 for direct document queries
+                similarity = round(float(similarity), 2)
+                
                 sources.append({
                     "document_id": doc_id,
                     "document_name": chunk.get('document_name', 'Unknown Document'),
                     "pages": pages,
                     "page_display": page_display,
-                    "similarity": round(chunk.get('similarity', 0), 2),
+                    "similarity": similarity,
                     "chunk_preview": chunk.get('text', '')[:200] + "..." if len(chunk.get('text', '')) > 200 else chunk.get('text', '')
                 })
 
         return sources
 
+    def _should_use_document_handler(self, query_analysis: Dict, organization: Dict, documents: List[Dict]) -> bool:
+        """Domain-aware decision on whether to use document handler"""
+        if not documents:
+            return False
+        
+        primary_intent = query_analysis.get('intent', {}).get('primary_intent', 'general_inquiry')
+        original_query = query_analysis.get('original_query', '').lower().strip()
+        domain = organization.get('domain', '').lower()
+        industry = organization.get('industry', '').lower()
+        
+        # Never use document handler for simple greetings
+        greeting_patterns = ['hey', 'hi', 'hello', 'greetings', 'good morning', 'good afternoon', 'good evening']
+        if any(original_query == pattern or original_query.startswith(pattern + ' ') for pattern in greeting_patterns):
+            return False
+        
+        # Domain-specific routing rules
+        if domain in ['customer_support', 'helpdesk', 'support']:
+            # Customer support: Use documents only for factual queries
+            return primary_intent in ['factual_lookup', 'specific_value', 'procedural']
+        
+        elif domain in ['technical', 'documentation', 'knowledge_base', 'it_policies']:
+            # Technical/knowledge base: Use documents for substantive queries, not greetings
+            # Only skip for pure greetings or opinion requests
+            if primary_intent == 'opinion_recommendation':
+                return False
+            # For general_inquiry, check if it's actually a substantive question
+            if primary_intent == 'general_inquiry':
+                # If it's just a greeting or very short, use general handler
+                if len(original_query.split()) <= 2:
+                    return False
+            return True
+        
+        elif domain in ['legal', 'compliance', 'policies']:
+            # Legal/compliance: Use documents for specific lookups
+            return primary_intent in ['factual_lookup', 'specific_value', 'list_enumeration']
+        
+        # Default: Use documents for most queries when available
+        # But skip for greetings and very short queries
+        if len(original_query.split()) <= 2:
+            return False
+        return primary_intent != 'opinion_recommendation'
+
     def _fallback_keyword_search(self, message: str, organization: Dict, documents: List[Dict], organization_id: str = None) -> str:
         """Fallback to keyword-based search when embeddings fail"""
         print("Using fallback keyword search")
 
-        # Simple keyword matching
-        query_words = set(message.lower().split())
-        relevant_chunks = []
-
-        for doc in documents:
-            chunks = doc.get("chunks", [])
-            for i, chunk in enumerate(chunks):
-                # Handle both old and new chunk formats
-                if isinstance(chunk, dict):
-                    chunk_text = chunk.get("text", "")
+        # Check for count and list queries first
+        message_lower = message.lower()
+        count_keywords = ['how many', 'count', 'number of', 'total number']
+        list_keywords = ['list', 'show', 'enumerate', 'all of them', 'all of', 'what are', 'what are the']
+        is_count_query = any(keyword in message_lower for keyword in count_keywords)
+        is_list_query = any(keyword in message_lower for keyword in list_keywords)
+        
+        # Check for policy-related terms (including variations)
+        policy_terms = ['document', 'policy', 'policies', 'file', 'files', 'it policy', 'it policies', 'them']
+        has_policy_term = any(term in message_lower for term in policy_terms)
+        
+        # Handle list queries - return directly without LLM processing
+        if is_list_query and (has_policy_term or 'them' in message_lower or 'all' in message_lower):
+            if 'policy' in message_lower or 'policies' in message_lower or 'it policy' in message_lower or 'them' in message_lower:
+                policy_docs = [d for d in documents if 'policy' in d.get('filename', '').lower()]
+                if policy_docs:
+                    doc_list = []
+                    for i, doc in enumerate(policy_docs, 1):
+                        doc_name = doc.get('filename', 'Unknown Document')
+                        doc_list.append(f"{i}. {doc_name}")
+                    return f"Here are all {len(policy_docs)} IT policy documents:\n\n" + "\n".join(doc_list)
                 else:
-                    chunk_text = str(chunk)
-
-                chunk_words = set(chunk_text.lower().split())
-                score = len(query_words.intersection(chunk_words))
-
-                if score > 0:
-                    relevant_chunks.append({
-                        "text": chunk_text,
-                        "document_name": doc["filename"],
-                        "score": score
-                    })
-
-        # Sort by score and take top chunks
-        relevant_chunks.sort(key=lambda x: x["score"], reverse=True)
-        top_chunks = relevant_chunks[:3]
-
-        if not top_chunks:
-            # No relevant content found
-            context = "No relevant information found in the uploaded documents."
+                    return f"There are {len(documents)} total documents available, but no specific policy documents were found."
+            else:
+                doc_list = []
+                for i, doc in enumerate(documents, 1):
+                    doc_name = doc.get('filename', 'Unknown Document')
+                    doc_list.append(f"{i}. {doc_name}")
+                return f"Here are all {len(documents)} documents in the knowledge base:\n\n" + "\n".join(doc_list)
+        elif is_count_query and has_policy_term:
+            # Handle count query directly
+            if 'policy' in message_lower or 'policies' in message_lower or 'it policy' in message_lower:
+                policy_docs = [d for d in documents if 'policy' in d.get('filename', '').lower()]
+                count = len(policy_docs)
+                if count > 0:
+                    doc_list = [d.get('filename', 'Unknown') for d in policy_docs[:10]]
+                    context = f"There are {count} IT policy documents available. Document names: {', '.join(doc_list[:5])}"
+                    if count > 5:
+                        context += f" and {count - 5} more."
+                else:
+                    context = f"There are {len(documents)} total documents available, but no specific policy documents were found."
+            else:
+                context = f"There are {len(documents)} documents available in the knowledge base."
         else:
-            context = "\n\n---\n\n".join([
-                f"[From {chunk['document_name']}]\n{chunk['text']}"
-                for chunk in top_chunks
-            ])
+            # Simple keyword matching
+            # Remove stop words for better matching
+            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'how', 'many', 'what', 'when', 'where', 'why'}
+            query_words = set(message_lower.split()) - stop_words
+            
+            # If query is too short after removing stop words, use all words
+            if len(query_words) == 0:
+                query_words = set(message_lower.split())
+            
+            relevant_chunks = []
+
+            for doc in documents:
+                chunks = doc.get("chunks", [])
+                for i, chunk in enumerate(chunks):
+                    # Handle both old and new chunk formats
+                    if isinstance(chunk, dict):
+                        chunk_text = chunk.get("text", "")
+                    else:
+                        chunk_text = str(chunk)
+
+                    chunk_words = set(chunk_text.lower().split())
+                    # Calculate score: exact matches + partial matches
+                    exact_matches = len(query_words.intersection(chunk_words))
+                    # Also check for partial word matches
+                    partial_matches = sum(1 for qw in query_words if any(qw in cw or cw in qw for cw in chunk_words))
+                    score = exact_matches * 2 + partial_matches
+
+                    if score > 0:
+                        relevant_chunks.append({
+                            "text": chunk_text,
+                            "document_name": doc["filename"],
+                            "score": score
+                        })
+
+            # Sort by score and take top chunks
+            relevant_chunks.sort(key=lambda x: x["score"], reverse=True)
+            top_chunks = relevant_chunks[:5]  # Get more chunks for better context
+
+            if not top_chunks:
+                # No relevant content found - provide document count as fallback
+                context = f"No specific information found matching your query. However, there are {len(documents)} documents available in the knowledge base."
+            else:
+                context = "\n\n---\n\n".join([
+                    f"[From {chunk['document_name']}]\n{chunk['text'][:500]}"  # Limit chunk length
+                    for chunk in top_chunks
+                ])
 
         base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt("document_assistant")
         system_prompt = self.prompt_service.create_contextual_prompt(

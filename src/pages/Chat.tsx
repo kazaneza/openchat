@@ -12,7 +12,7 @@ interface Source {
 }
 
 const Chat: React.FC = () => {
-  const { currentOrganization, currentUser } = useAuth();
+  const { currentOrganization, currentUser, login } = useAuth();
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,11 +28,49 @@ const Chat: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
+  const refreshOrganizationData = async () => {
+    if (!currentOrganization || !currentUser) return;
+    try {
+      const updatedOrg = await organizationApi.getById(currentOrganization.id);
+      // Only update if document count has changed to avoid unnecessary re-renders
+      if (updatedOrg && updatedOrg.document_count !== currentOrganization.document_count) {
+        login(updatedOrg, currentUser);
+      }
+    } catch (error) {
+      console.error('Failed to refresh organization data:', error);
+    }
+  };
+
   useEffect(() => {
     if (currentOrganization && currentUser) {
       loadConversations();
+      // Refresh organization data to get updated document count
+      refreshOrganizationData();
     }
-  }, [currentOrganization, currentUser]);
+  }, [currentOrganization?.id, currentUser?.id]); // Only depend on IDs to avoid loops
+
+  // Refresh organization data when page becomes visible (user navigates back to chat)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && currentOrganization && currentUser) {
+        refreshOrganizationData();
+      }
+    };
+    
+    const handleFocus = () => {
+      if (currentOrganization && currentUser) {
+        refreshOrganizationData();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [currentOrganization?.id, currentUser?.id]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -58,7 +96,12 @@ const Chat: React.FC = () => {
         conversationId,
         currentUser.id
       );
-      setMessages(data.messages);
+      // Ensure content is always a string, not an object
+      const normalizedMessages = data.messages.map((msg: ConversationMessage) => ({
+        ...msg,
+        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+      }));
+      setMessages(normalizedMessages);
       setCurrentConversation(data.conversation);
       setShowConversations(false);
     } catch (error) {
@@ -171,11 +214,18 @@ const Chat: React.FC = () => {
         currentConversation?.id
       );
 
+      // Ensure response.response is a string
+      const responseContent = typeof response.response === 'string' 
+        ? response.response 
+        : typeof response.response === 'object' 
+          ? JSON.stringify(response.response, null, 2)
+          : String(response.response || 'No response received');
+
       const botMessage: ConversationMessage = {
         id: (Date.now() + 1).toString(),
-        conversation_id: response.conversation_id,
+        conversation_id: response.conversation_id || currentConversation?.id || '',
         role: 'assistant',
-        content: response.response,
+        content: responseContent,
         created_at: new Date().toISOString(),
         metadata: {
           query_type: response.query_type,
@@ -187,13 +237,49 @@ const Chat: React.FC = () => {
 
       setMessages(prev => [...prev, botMessage]);
 
+      // Try to load conversation details if this is a new conversation
+      // Don't fail the entire request if this fails - the message was already sent successfully
       if (!currentConversation && response.conversation_id) {
-        await loadConversations();
-        const newConv = await conversationApi.getConversationMessages(
-          response.conversation_id,
-          currentUser!.id
-        );
-        setCurrentConversation(newConv.conversation);
+        try {
+          // Add a small delay to ensure conversation is saved
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await loadConversations();
+          
+          // Try to get conversation messages, with retry logic
+          let newConv = null;
+          let retries = 3;
+          while (retries > 0 && !newConv) {
+            try {
+              newConv = await conversationApi.getConversationMessages(
+                response.conversation_id,
+                currentUser!.id
+              );
+              setCurrentConversation(newConv.conversation);
+              break;
+            } catch (err: any) {
+              retries--;
+              if (retries > 0) {
+                // Wait a bit longer before retrying
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              } else {
+                // If conversation doesn't exist yet, create a minimal conversation object
+                console.warn('Conversation not found yet, creating placeholder');
+                setCurrentConversation({
+                  id: response.conversation_id,
+                  title: 'New Conversation',
+                  message_count: 1,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                  organization_id: currentOrganization.id,
+                  user_id: currentUser!.id
+                });
+              }
+            }
+          }
+        } catch (loadError) {
+          // Log but don't show error to user - the chat message was successful
+          console.warn('Failed to load conversation details:', loadError);
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -402,7 +488,13 @@ const Chat: React.FC = () => {
                               <span className="text-xs font-medium">Clarification Needed</span>
                             </div>
                           )}
-                          <p className="whitespace-pre-wrap dark:text-gray-200">{message.content}</p>
+                          <p className="whitespace-pre-wrap dark:text-gray-200">
+                            {typeof message.content === 'string' 
+                              ? message.content 
+                              : typeof message.content === 'object' 
+                                ? JSON.stringify(message.content, null, 2)
+                                : String(message.content || '')}
+                          </p>
                           {!message.metadata?.needs_clarification && renderConfidenceScore(message.metadata?.confidence_score)}
                           {!message.metadata?.needs_clarification && renderSources(message.metadata?.sources)}
 

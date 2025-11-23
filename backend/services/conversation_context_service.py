@@ -82,7 +82,8 @@ class ConversationContextService:
             'documents': [],
             'topics': [],
             'values': [],
-            'dates': []
+            'dates': [],
+            'mentioned_entities': []  # Entities mentioned in responses (like "IT policies")
         }
 
         for msg in messages:
@@ -99,10 +100,41 @@ class ConversationContextService:
             # Dates
             dates = re.findall(r'\b(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4})\b', content)
             entities['dates'].extend(dates)
+            
+            # Extract entities from assistant responses (e.g., "26 IT policies", "IT policies")
+            # Pattern: number + capitalized phrase or just capitalized phrase
+            if msg.get('role') == 'assistant':
+                # Pattern: "You have X Y" or "There are X Y" or just "X Y"
+                entity_patterns = [
+                    r'(?:You have|There (?:are|is)|We have|I have)\s+(\d+)\s+((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)*)',
+                    r'(\d+)\s+((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)*)\s+(?:policies?|documents?|files?|items?|things?)',
+                    r'\b((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)+)\s+(?:policies?|documents?|procedures?|guidelines?)',
+                    r'\b((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)+)\s+at\s+',
+                    r'\b((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)+)\s+help',
+                ]
+                for pattern in entity_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            # Combine number and entity if both present, or just take the entity part
+                            entity = ' '.join([m for m in match if m and not m.isdigit()])
+                            if not entity and len(match) > 1:
+                                entity = match[1] if not match[1].isdigit() else match[0]
+                            if entity:
+                                entities['mentioned_entities'].append(entity)
+                        else:
+                            entities['mentioned_entities'].append(match)
+                
+                # Also extract capitalized phrases that might be entities (including all caps like "IT")
+                capitalized_phrases = re.findall(r'\b((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+(?:[A-Z]{2,}|[A-Z][a-z]+))+)', content)
+                for phrase in capitalized_phrases[:5]:  # Increase limit
+                    if len(phrase.split()) <= 4:  # Reasonable entity length
+                        entities['mentioned_entities'].append(phrase)
 
-        # Deduplicate
+        # Deduplicate and prioritize recent entities
         for key in entities:
-            entities[key] = list(set(entities[key]))[:5]
+            # Reverse to keep most recent first, then deduplicate
+            entities[key] = list(dict.fromkeys(reversed(entities[key])))[:5]
 
         return entities
 
@@ -169,6 +201,57 @@ class ConversationContextService:
         # Get recent context (last 3 messages)
         recent_context = messages[-3:] if len(messages) >= 3 else messages
 
+        # Extract key entities from recent assistant responses
+        extracted_entities = []
+        for msg in reversed(recent_context):
+            if msg.get('role') == 'assistant':
+                content = msg.get('content', '')
+                # Extract capitalized phrases and numbers (likely entities)
+                import re
+                
+                # First, extract "IT policies" type patterns (all caps + lowercase)
+                it_policies_pattern = re.findall(r'\b([A-Z]{2,}\s+[a-z]+(?:\s+[a-z]+)*)\b', content)
+                if it_policies_pattern:
+                    extracted_entities.extend(it_policies_pattern[:3])
+                
+                # Find capitalized phrases (potential entities)
+                capitalized = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', content)
+                # Find numbers followed by nouns (e.g., "26 IT policies") - handle both "IT" and regular caps
+                number_entities = re.findall(r'\b\d+\s+((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)*)\b', content)
+                # Find quoted phrases
+                quoted = re.findall(r'["\']([^"\']+)["\']', content)
+                
+                if capitalized:
+                    extracted_entities.extend(capitalized[:3])  # Limit to top 3
+                if number_entities:
+                    extracted_entities.extend(number_entities[:2])
+                if quoted:
+                    extracted_entities.extend(quoted[:2])
+                
+                # Also extract the main subject from the response
+                # Look for patterns like "IT policies at", "IT policies help", etc.
+                subject_patterns = [
+                    r'\b((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)+)\s+(?:policies?|documents?|procedures?|guidelines?)\s+(?:at|help|establish)',
+                    r'You have (\d+)\s+((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)*)',
+                    r'There (?:are|is) (\d+)\s+((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)*)',
+                    r'(\d+)\s+((?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+[a-z]+)*)',
+                ]
+                for pattern in subject_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    if matches:
+                        for match in matches[:1]:  # Take first match
+                            if isinstance(match, tuple):
+                                # Take the entity part (skip numbers)
+                                entity = ' '.join([m for m in match if m and not m.isdigit()])
+                            else:
+                                entity = match
+                            if entity and entity not in extracted_entities:
+                                extracted_entities.append(entity)
+                
+                # Break after finding entities from most recent assistant response
+                if extracted_entities:
+                    break
+
         # Build context string
         context_parts = []
         for msg in recent_context:
@@ -183,12 +266,59 @@ class ConversationContextService:
 
         context_info = " | ".join(context_parts[-3:])
 
-        # Resolve pronouns with document references
+        # Resolve pronouns with extracted entities or document references
         if references.get('pronouns') or references.get('demonstratives'):
-            if entities.get('documents'):
-                latest_doc = entities['documents'][-1]
-                # Replace "it" or "this" with document name in context
-                resolved_query = f"[Referring to: {latest_doc}] {current_query}"
+            replacement_entity = None
+            
+            # First try mentioned entities from conversation history
+            if entities.get('mentioned_entities'):
+                # For "they/them/their", prefer plural entities
+                if any(pronoun in query_lower for pronoun in ['they', 'them', 'their', 'these', 'those']):
+                    # Look for plural-sounding entities
+                    for entity in entities['mentioned_entities']:
+                        if any(word.endswith('s') for word in entity.split()):
+                            replacement_entity = entity
+                            break
+                    # If no plural found, use the most recent entity
+                    if not replacement_entity:
+                        replacement_entity = entities['mentioned_entities'][0]
+                else:
+                    # For "it/this/that", use the most recent entity
+                    replacement_entity = entities['mentioned_entities'][0]
+            
+            # Fallback to extracted entities from current resolution
+            if not replacement_entity and extracted_entities:
+                # For "they/them/their", prefer plural entities
+                if any(pronoun in query_lower for pronoun in ['they', 'them', 'their', 'these', 'those']):
+                    # Look for plural-sounding entities or entities with numbers
+                    for entity in extracted_entities:
+                        if any(word.endswith('s') for word in entity.split()) or any(char.isdigit() for char in entity):
+                            replacement_entity = entity
+                            break
+                    # If no plural found, use the most recent entity
+                    if not replacement_entity:
+                        replacement_entity = extracted_entities[0]
+                else:
+                    # For "it/this/that", use the most recent entity
+                    replacement_entity = extracted_entities[0]
+            
+            # Fallback to document references
+            if not replacement_entity and entities.get('documents'):
+                replacement_entity = entities['documents'][-1]
+            
+            if replacement_entity:
+                # Replace pronouns in the query
+                import re
+                # Replace "they" with the entity
+                resolved_query = re.sub(
+                    r'\b(they|them|their|it|this|that|these|those)\b',
+                    replacement_entity,
+                    current_query,
+                    count=1,  # Only replace first occurrence
+                    flags=re.IGNORECASE
+                )
+                # Add context prefix for clarity
+                resolved_query = f"[Referring to: {replacement_entity}] {resolved_query}"
 
         # Add explicit context for vague references
         if references.get('vague_references'):

@@ -33,9 +33,19 @@ class EscalationService:
         department = 'general_support'
 
         # Check confidence score
-        if confidence_score < self.escalation_triggers['low_confidence']:
-            escalation_reasons.append('Low confidence in automated response')
-            urgency = 'medium'
+        # Don't escalate follow-up questions with low confidence if they're just context resolution issues
+        is_follow_up = query_analysis.get('follow_up', {}).get('is_follow_up', False)
+        has_pronouns = query_analysis.get('follow_up', {}).get('has_pronouns', False)
+        
+        # For follow-up questions with pronouns (like "they", "it"), be more lenient
+        # These often just need better context resolution, not human escalation
+        confidence_threshold = 0.25 if (is_follow_up and has_pronouns) else self.escalation_triggers['low_confidence']
+        
+        if confidence_score < confidence_threshold:
+            # Only escalate if it's not a simple follow-up that just needs better resolution
+            if not (is_follow_up and has_pronouns and confidence_score > 0.2):
+                escalation_reasons.append('Low confidence in automated response')
+                urgency = 'medium'
 
         # Check if no relevant information found
         if not sources or len(sources) == 0:

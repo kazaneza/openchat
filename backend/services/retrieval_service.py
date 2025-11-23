@@ -251,9 +251,13 @@ class RetrievalService:
         elif max_score > 0.6:
             # Medium confidence, use base threshold
             threshold = base_threshold
-        else:
+        elif max_score > 0.2:
             # Lower confidence, be more lenient
             threshold = min(base_threshold, max_score * 0.7)
+        else:
+            # Very low confidence - use a very lenient threshold to ensure we get results
+            # Use 50% of max_score or 0.05 minimum, whichever is higher
+            threshold = max(0.05, max_score * 0.5)
 
         # Adjust for query complexity
         if query_analysis.get('complexity_level') == 'high':
@@ -267,8 +271,18 @@ class RetrievalService:
         filtered_results = [r for r in results if r.get('similarity', 0) >= threshold]
 
         # Ensure minimum results if we have any
-        if len(filtered_results) < 3 and len(results) >= 3:
-            filtered_results = results[:3]
+        # Always keep at least 1 result if any results exist (even if below threshold)
+        # Keep top 3 if we have 3+ results but filtered to less than 3
+        if len(filtered_results) == 0 and len(results) > 0:
+            # No results passed threshold, but we have results - keep the best one(s)
+            # Sort by similarity and take top result(s)
+            sorted_results = sorted(results, key=lambda x: x.get('similarity', 0), reverse=True)
+            filtered_results = sorted_results[:min(3, len(sorted_results))]
+            print(f"Warning: No results above threshold {threshold:.3f}, keeping top {len(filtered_results)} result(s) with similarity {filtered_results[0].get('similarity', 0):.3f}")
+        elif len(filtered_results) < 3 and len(results) >= 3:
+            # We have 3+ results but filtered to less than 3 - keep top 3
+            sorted_results = sorted(results, key=lambda x: x.get('similarity', 0), reverse=True)
+            filtered_results = sorted_results[:3]
 
         return filtered_results
 
