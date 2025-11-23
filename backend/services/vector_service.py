@@ -1,268 +1,178 @@
+"""
+Modern Vector Database Service using ChromaDB
+Provides organization-isolated vector storage and retrieval
+"""
+import os
 import chromadb
 from chromadb.config import Settings
-import os
+from typing import List, Dict, Optional
 import uuid
-from typing import List, Dict, Optional, Any
-import json
-from datetime import datetime
 
 class VectorService:
     def __init__(self, persist_directory: str = "data/chroma_db"):
-        """Initialize ChromaDB client with persistent storage"""
         self.persist_directory = persist_directory
         os.makedirs(persist_directory, exist_ok=True)
         
         # Initialize ChromaDB client with persistence
         self.client = chromadb.PersistentClient(
             path=persist_directory,
-            settings=Settings(
-                anonymized_telemetry=False,
-                allow_reset=True
-            )
+            settings=Settings(anonymized_telemetry=False)
         )
         
-        # Create or get collection for document embeddings
-        self.collection = self.client.get_or_create_collection(
-            name="document_embeddings",
-            metadata={"description": "Document chunks with embeddings for RAG"}
-        )
-        
-        print(f"ChromaDB initialized with {self.collection.count()} existing embeddings")
+        # Dictionary to cache collection references
+        self._collections = {}
     
-    def add_document_chunks(self, document_id: str, document_name: str, chunks: List[Any], embeddings: List[List[float]], organization_id: str) -> bool:
-        """Add document chunks with embeddings to ChromaDB"""
+    def get_collection(self, organization_id: str):
+        """Get or create a collection for an organization"""
+        if organization_id not in self._collections:
+            collection_name = f"org_{organization_id}"
+            try:
+                collection = self.client.get_or_create_collection(
+                    name=collection_name,
+                    metadata={"organization_id": organization_id}
+                )
+                self._collections[organization_id] = collection
+            except Exception as e:
+                print(f"Error getting collection for org {organization_id}: {e}")
+                # Create with a unique name if there's a conflict
+                collection_name = f"org_{organization_id}_{uuid.uuid4().hex[:8]}"
+                collection = self.client.get_or_create_collection(
+                    name=collection_name,
+                    metadata={"organization_id": organization_id}
+                )
+                self._collections[organization_id] = collection
+        
+        return self._collections[organization_id]
+    
+    def add_document_chunks(
+        self,
+        organization_id: str,
+        document_id: str,
+        chunks: List[Dict],
+        embeddings: List[List[float]]
+    ) -> bool:
+        """Add document chunks to vector database"""
         try:
-            if len(chunks) != len(embeddings):
-                print(f"Warning: Chunk count ({len(chunks)}) doesn't match embedding count ({len(embeddings)})")
-                return False
-
+            collection = self.get_collection(organization_id)
+            
             # Prepare data for ChromaDB
             ids = []
             documents = []
             metadatas = []
-            embedding_vectors = []
-
-            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            embedding_list = []
+            
+            for i, chunk in enumerate(chunks):
                 chunk_id = f"{document_id}_chunk_{i}"
-
-                # Handle both old (string) and new (dict) chunk formats
-                if isinstance(chunk, dict):
-                    chunk_text = chunk.get("text", "")
-                    pages = chunk.get("pages", [])
-                    token_count = chunk.get("token_count", len(chunk_text.split()))
-                else:
-                    chunk_text = str(chunk)
-                    pages = []
-                    token_count = len(chunk_text.split())
-
+                chunk_text = chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)
+                pages = chunk.get("pages", []) if isinstance(chunk, dict) else []
+                
                 ids.append(chunk_id)
                 documents.append(chunk_text)
                 metadatas.append({
                     "document_id": document_id,
-                    "document_name": document_name,
-                    "organization_id": organization_id,
+                    "document_name": chunk.get("document_name", ""),
                     "chunk_index": i,
-                    "chunk_id": chunk_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "token_count": token_count,
-                    "pages": json.dumps(pages),
-                    "page_start": pages[0] if pages else 0,
-                    "page_end": pages[-1] if pages else 0
+                    "pages": ",".join(map(str, pages)) if pages else ""
                 })
-                embedding_vectors.append(embedding)
+                embedding_list.append(embeddings[i] if i < len(embeddings) else [])
             
-            # Add to ChromaDB
-            self.collection.add(
-                ids=ids,
-                documents=documents,
-                metadatas=metadatas,
-                embeddings=embedding_vectors
-            )
+            # Add to collection
+            if embedding_list:
+                collection.add(
+                    ids=ids,
+                    documents=documents,
+                    metadatas=metadatas,
+                    embeddings=embedding_list
+                )
             
-            print(f"Added {len(chunks)} chunks for document '{document_name}' to ChromaDB")
             return True
-            
         except Exception as e:
-            print(f"Error adding document chunks to ChromaDB: {e}")
+            print(f"Error adding document chunks to vector DB: {e}")
             return False
     
-    def search_similar_chunks(self, query_embedding: List[float], organization_id: str, top_k: int = 5, similarity_threshold: float = 0.1) -> List[Dict]:
-        """Search for similar chunks using ChromaDB"""
+    def search_similar_chunks(
+        self,
+        organization_id: str,
+        query_embedding: List[float],
+        top_k: int = 5,
+        min_similarity: float = 0.3
+    ) -> List[Dict]:
+        """Search for similar chunks using vector similarity"""
         try:
-            # Query ChromaDB for similar chunks
-            results = self.collection.query(
+            collection = self.get_collection(organization_id)
+            
+            # Query the collection
+            results = collection.query(
                 query_embeddings=[query_embedding],
-                n_results=top_k,
-                where={"organization_id": organization_id},  # Filter by organization
-                include=["documents", "metadatas", "distances"]
+                n_results=top_k
             )
             
-            if not results['documents'] or not results['documents'][0]:
-                return []
-            
-            # Process results
+            # Format results
             similar_chunks = []
-            documents = results['documents'][0]
-            metadatas = results['metadatas'][0]
-            distances = results['distances'][0]
-            
-            # Use a very lenient threshold at ChromaDB level - let filtering logic handle strict filtering
-            # Only filter out clearly irrelevant results (similarity < 0.05)
-            min_threshold = 0.05
-            effective_threshold = max(similarity_threshold, min_threshold)
-            
-            for doc, metadata, distance in zip(documents, metadatas, distances):
-                # Convert distance to similarity score (ChromaDB uses cosine distance)
-                similarity = 1 - distance
-
-                if similarity >= effective_threshold:
-                    # Parse pages from JSON
-                    pages = []
-                    if "pages" in metadata:
-                        try:
-                            pages = json.loads(metadata["pages"])
-                        except:
-                            pages = []
-
-                    similar_chunks.append({
-                        "text": doc,
-                        "document_id": metadata["document_id"],
-                        "document_name": metadata["document_name"],
-                        "chunk_index": metadata["chunk_index"],
-                        "chunk_id": metadata["chunk_id"],
-                        "similarity": similarity,
-                        "distance": distance,
-                        "timestamp": metadata.get("timestamp"),
-                        "token_count": metadata.get("token_count", 0),
-                        "pages": pages,
-                        "page_start": metadata.get("page_start", 0),
-                        "page_end": metadata.get("page_end", 0)
-                    })
-            
-            # If we got very few results, be more lenient and include lower similarity results
-            if len(similar_chunks) < min(3, top_k // 2) and len(documents) > len(similar_chunks):
-                # Include additional lower similarity results
-                for doc, metadata, distance in zip(documents, metadatas, distances):
-                    similarity = 1 - distance
-                    # Check if we already have this chunk
-                    chunk_id = metadata.get("chunk_id")
-                    if similarity >= 0.05 and not any(c.get("chunk_id") == chunk_id for c in similar_chunks):
-                        pages = []
-                        if "pages" in metadata:
-                            try:
-                                pages = json.loads(metadata["pages"])
-                            except:
-                                pages = []
+            if results['ids'] and len(results['ids'][0]) > 0:
+                for i in range(len(results['ids'][0])):
+                    chunk_id = results['ids'][0][i]
+                    distance = results['distances'][0][i] if 'distances' in results else 0.0
+                    # Convert distance to similarity (ChromaDB uses distance, lower is better)
+                    # For cosine distance: similarity = 1 - distance
+                    similarity = max(0.0, 1.0 - distance) if distance > 0 else 1.0
+                    
+                    if similarity >= min_similarity:
+                        metadata = results['metadatas'][0][i] if results['metadatas'] else {}
+                        document_text = results['documents'][0][i] if results['documents'] else ""
+                        
+                        # Parse pages from metadata
+                        pages_str = metadata.get("pages", "")
+                        pages = [int(p) for p in pages_str.split(",") if p.isdigit()] if pages_str else []
+                        
                         similar_chunks.append({
-                            "text": doc,
-                            "document_id": metadata["document_id"],
-                            "document_name": metadata["document_name"],
-                            "chunk_index": metadata["chunk_index"],
                             "chunk_id": chunk_id,
-                            "similarity": similarity,
-                            "distance": distance,
-                            "timestamp": metadata.get("timestamp"),
-                            "token_count": metadata.get("token_count", 0),
+                            "text": document_text,
+                            "document_id": metadata.get("document_id", ""),
+                            "document_name": metadata.get("document_name", ""),
+                            "chunk_index": metadata.get("chunk_index", 0),
                             "pages": pages,
-                            "page_start": metadata.get("page_start", 0),
-                            "page_end": metadata.get("page_end", 0)
+                            "similarity": similarity
                         })
-                        if len(similar_chunks) >= min(3, top_k):
-                            break
             
-            print(f"Found {len(similar_chunks)} similar chunks (threshold: {similarity_threshold})")
             return similar_chunks
-            
         except Exception as e:
-            print(f"Error searching ChromaDB: {e}")
+            print(f"Error searching similar chunks: {e}")
             return []
     
-    def delete_document_chunks(self, document_id: str) -> bool:
-        """Delete all chunks for a specific document"""
+    def delete_document_chunks(self, organization_id: str, document_id: str) -> bool:
+        """Delete all chunks for a document"""
         try:
-            # Get all chunk IDs for this document
-            results = self.collection.get(
-                where={"document_id": document_id},
-                include=["metadatas"]
+            collection = self.get_collection(organization_id)
+            
+            # Get all chunks for this document
+            results = collection.get(
+                where={"document_id": document_id}
             )
             
             if results['ids']:
-                # Delete all chunks for this document
-                self.collection.delete(
-                    where={"document_id": document_id}
-                )
-                print(f"Deleted {len(results['ids'])} chunks for document {document_id}")
-                return True
-            else:
-                print(f"No chunks found for document {document_id}")
-                return False
-                
+                collection.delete(ids=results['ids'])
+            
+            return True
         except Exception as e:
             print(f"Error deleting document chunks: {e}")
             return False
     
-    def delete_organization_chunks(self, organization_id: str) -> bool:
-        """Delete all chunks for an organization"""
+    def delete_organization_data(self, organization_id: str) -> bool:
+        """Delete all data for an organization"""
         try:
-            results = self.collection.get(
-                where={"organization_id": organization_id},
-                include=["metadatas"]
-            )
+            collection = self.get_collection(organization_id)
+            collection_name = collection.name
             
-            if results['ids']:
-                self.collection.delete(
-                    where={"organization_id": organization_id}
-                )
-                print(f"Deleted {len(results['ids'])} chunks for organization {organization_id}")
-                return True
-            else:
-                print(f"No chunks found for organization {organization_id}")
-                return False
-                
-        except Exception as e:
-            print(f"Error deleting organization chunks: {e}")
-            return False
-    
-    def get_collection_stats(self) -> Dict:
-        """Get statistics about the vector collection"""
-        try:
-            total_count = self.collection.count()
+            # Delete the entire collection
+            self.client.delete_collection(name=collection_name)
             
-            # Get sample of metadata to analyze
-            sample_results = self.collection.get(
-                limit=min(100, total_count),
-                include=["metadatas"]
-            )
+            # Remove from cache
+            if organization_id in self._collections:
+                del self._collections[organization_id]
             
-            # Analyze organizations and documents
-            organizations = set()
-            documents = set()
-            
-            for metadata in sample_results.get('metadatas', []):
-                organizations.add(metadata.get('organization_id', 'unknown'))
-                documents.add(metadata.get('document_id', 'unknown'))
-            
-            return {
-                "total_chunks": total_count,
-                "organizations_count": len(organizations),
-                "documents_count": len(documents),
-                "sample_size": len(sample_results.get('metadatas', []))
-            }
-            
-        except Exception as e:
-            print(f"Error getting collection stats: {e}")
-            return {"error": str(e)}
-    
-    def reset_collection(self) -> bool:
-        """Reset the entire collection (use with caution!)"""
-        try:
-            self.client.delete_collection("document_embeddings")
-            self.collection = self.client.get_or_create_collection(
-                name="document_embeddings",
-                metadata={"description": "Document chunks with embeddings for RAG"}
-            )
-            print("ChromaDB collection reset successfully")
             return True
         except Exception as e:
-            print(f"Error resetting collection: {e}")
+            print(f"Error deleting organization data: {e}")
             return False
+
