@@ -4,6 +4,7 @@ Handles intelligent query routing, retrieval, and response generation
 """
 from typing import List, Dict, Optional, Tuple
 import re
+import random
 from .openai_service import OpenAIService
 from .embedding_service import EmbeddingService
 from .vector_service import VectorService
@@ -95,6 +96,18 @@ class ChatbotService:
                     documents=documents,
                     conversation_history=conversation_history
                 )
+            
+            # Generate follow-up question to help users go deeper
+            follow_up_question = self._generate_follow_up_question(
+                response=response,
+                query_type=classification['type'],
+                has_sources=len(sources) > 0,
+                message=message
+            )
+            
+            # Append follow-up question to response
+            if follow_up_question:
+                response = f"{response}\n\n{follow_up_question}"
             
             # Add assistant response to conversation
             if conversation_id:
@@ -493,6 +506,86 @@ class ChatbotService:
                             return response, sources, 0.95
         
         return None
+    
+    def _is_metadata_query(self, message: str) -> bool:
+        """Check if query is a metadata query (count/list) that already provides complete info"""
+        message_lower = message.lower()
+        metadata_patterns = [
+            r'how many\s+(?:document|file|policy|policies)',
+            r'count\s+(?:the|all|all the)?\s*(?:document|file|policy|policies)',
+            r'list\s+(?:all|all the|the)?\s*(?:document|file|policy|policies)',
+            r'show\s+(?:me\s+)?(?:all|all the|the)?\s*(?:document|file|policy|policies)',
+            r'enumerate\s+(?:all|all the|the)?\s*(?:document|file|policy|policies)'
+        ]
+        return any(re.search(pattern, message_lower) for pattern in metadata_patterns)
+    
+    def _generate_follow_up_question(
+        self,
+        response: str,
+        query_type: str,
+        has_sources: bool,
+        message: str
+    ) -> str:
+        """
+        Generate a natural follow-up question to help users go deeper
+        """
+        message_lower = message.lower()
+        response_lower = response.lower()
+        
+        # Determine context from the response
+        is_count_response = 'there are' in response_lower and ('document' in response_lower or 'policy' in response_lower)
+        is_list_response = 'here are' in response_lower or 'all' in response_lower and 'document' in response_lower
+        is_detailed_response = len(response.split()) > 50
+        is_short_response = len(response.split()) < 20
+        
+        # Generate contextually appropriate follow-ups
+        follow_ups = []
+        
+        if is_count_response or is_list_response:
+            # For count/list queries, offer to explain or get details
+            follow_ups.extend([
+                "Would you like me to explain what any of these documents contain?",
+                "Would you like more details about any specific document?",
+                "Would you like a summary of what these documents cover?"
+            ])
+        elif is_detailed_response:
+            # For detailed responses, offer summary or breakdown
+            follow_ups.extend([
+                "Would you like a summary of this information?",
+                "Would you like me to break this down into simpler terms?",
+                "Would you like more details on any specific aspect?"
+            ])
+        elif is_short_response:
+            # For short responses, offer more detail
+            follow_ups.extend([
+                "Would you like more details about this?",
+                "Would you like me to explain this further?",
+                "Would you like additional information on this topic?"
+            ])
+        else:
+            # General follow-ups
+            follow_ups.extend([
+                "Would you like more details about this?",
+                "Would you like me to explain any part of this further?",
+                "Is there anything specific you'd like me to clarify?"
+            ])
+        
+        # Add context-specific follow-ups based on query type
+        if query_type == 'document' and has_sources:
+            follow_ups.extend([
+                "Would you like me to search for more information on this topic?",
+                "Would you like details from other related documents?"
+            ])
+        elif query_type == 'general':
+            follow_ups.extend([
+                "Is there anything else I can help you with?",
+                "Would you like to know more about our services?"
+            ])
+        
+        # Select a random but appropriate follow-up
+        selected = random.choice(follow_ups)
+        
+        return selected
     
     def _fallback_response(self, message: str, organization: Dict, documents: List[Dict]) -> str:
         """Fallback response when retrieval fails"""
