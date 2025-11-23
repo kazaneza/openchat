@@ -34,10 +34,23 @@ const Chat: React.FC = () => {
       const updatedOrg = await organizationApi.getById(currentOrganization.id);
       // Only update if document count has changed to avoid unnecessary re-renders
       if (updatedOrg && updatedOrg.document_count !== currentOrganization.document_count) {
-        login(updatedOrg, currentUser);
+        try {
+          login(updatedOrg, currentUser);
+        } catch (storageError: any) {
+          // Handle quota errors gracefully - update state even if localStorage fails
+          if (storageError.name === 'QuotaExceededError' || storageError.code === 22) {
+            console.warn('localStorage quota exceeded, but organization data updated in memory');
+            // The login function already updates state, so we just need to handle the error
+          } else {
+            throw storageError;
+          }
+        }
       }
-    } catch (error) {
-      console.error('Failed to refresh organization data:', error);
+    } catch (error: any) {
+      // Only log the error if it's not a quota error (quota errors are handled above)
+      if (error.name !== 'QuotaExceededError' && error.code !== 22) {
+        console.error('Failed to refresh organization data:', error);
+      }
     }
   };
 
