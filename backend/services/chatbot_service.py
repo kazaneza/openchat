@@ -3,6 +3,7 @@ Modern Chatbot Service
 Handles intelligent query routing, retrieval, and response generation
 """
 from typing import List, Dict, Optional, Tuple
+import re
 from .openai_service import OpenAIService
 from .embedding_service import EmbeddingService
 from .vector_service import VectorService
@@ -185,6 +186,11 @@ class ChatbotService:
     ) -> Tuple[str, List[Dict], float]:
         """Handle document-specific queries with RAG"""
         try:
+            # Check for metadata queries (how many, list all) - answer directly from index
+            metadata_response = self._handle_metadata_query(message, documents, conversation_history)
+            if metadata_response:
+                return metadata_response
+            
             org_id = organization.get("id")
             
             # Generate query embedding
@@ -343,6 +349,150 @@ class ChatbotService:
             )
         
         return "\n\n---\n\n".join(context_parts)
+    
+    def _handle_metadata_query(
+        self,
+        message: str,
+        documents: List[Dict],
+        conversation_history: List[Dict]
+    ) -> Optional[Tuple[str, List[Dict], float]]:
+        """
+        Handle metadata queries like "how many documents" or "list all documents"
+        Answers directly from the document index without vector search
+        """
+        message_lower = message.lower().strip()
+        
+        # Patterns for count queries
+        count_patterns = [
+            r'how many\s+(?:document|file|policy|policies|pdf)',
+            r'count\s+(?:the|all|all the)?\s*(?:document|file|policy|policies)',
+            r'number of\s+(?:document|file|policy|policies)',
+            r'total\s+(?:number|count)\s+of\s+(?:document|file|policy|policies)'
+        ]
+        
+        # Patterns for list queries
+        list_patterns = [
+            r'list\s+(?:all|all the|the)?\s*(?:document|file|policy|policies)',
+            r'show\s+(?:me\s+)?(?:all|all the|the)?\s*(?:document|file|policy|policies)',
+            r'enumerate\s+(?:all|all the|the)?\s*(?:document|file|policy|policies)',
+            r'what\s+(?:are|is)\s+(?:all|all the|the)?\s*(?:document|file|policy|policies)',
+            r'name\s+(?:all|all the|the)?\s*(?:document|file|policy|policies)'
+        ]
+        
+        # Check for count query
+        is_count_query = any(re.search(pattern, message_lower) for pattern in count_patterns)
+        is_list_query = any(re.search(pattern, message_lower) for pattern in list_patterns)
+        
+        # Check if query references policies specifically
+        is_policy_query = 'policy' in message_lower or 'policies' in message_lower
+        
+        # Handle count queries
+        if is_count_query:
+            if is_policy_query:
+                # Count policy documents
+                policy_docs = [d for d in documents if 'policy' in d.get('filename', '').lower()]
+                count = len(policy_docs)
+                if count > 0:
+                    # Always list all items when providing a count
+                    doc_list = []
+                    for i, doc in enumerate(policy_docs, 1):
+                        doc_name = doc.get('filename', 'Unknown Document')
+                        doc_list.append(f"{i}. {doc_name}")
+                    
+                    response = f"There are {count} IT policy document(s) available:\n\n" + "\n".join(doc_list)
+                    sources = [{"document_id": d.get("id"), "document_name": d.get("filename")} for d in policy_docs]
+                    return response, sources, 0.95
+                else:
+                    response = f"There are {len(documents)} total document(s) available, but no specific policy documents were found."
+                    return response, [], 0.8
+            else:
+                # Count all documents - always list all when providing count
+                count = len(documents)
+                if count > 0:
+                    doc_list = []
+                    for i, doc in enumerate(documents, 1):
+                        doc_name = doc.get('filename', 'Unknown Document')
+                        doc_list.append(f"{i}. {doc_name}")
+                    
+                    response = f"There are {count} document(s) available in the knowledge base:\n\n" + "\n".join(doc_list)
+                    sources = [{"document_id": d.get("id"), "document_name": d.get("filename")} for d in documents]
+                    return response, sources, 0.95
+                else:
+                    response = "There are no documents available in the knowledge base."
+                    return response, [], 0.9
+        
+        # Handle list queries
+        if is_list_query:
+            if is_policy_query:
+                # List policy documents
+                policy_docs = [d for d in documents if 'policy' in d.get('filename', '').lower()]
+                if policy_docs:
+                    doc_list = []
+                    for i, doc in enumerate(policy_docs, 1):
+                        doc_name = doc.get('filename', 'Unknown Document')
+                        doc_list.append(f"{i}. {doc_name}")
+                    
+                    response = f"Here are all {len(policy_docs)} IT policy documents:\n\n" + "\n".join(doc_list)
+                    sources = [{"document_id": d.get("id"), "document_name": d.get("filename"), "similarity": 1.0} for d in policy_docs]
+                    return response, sources, 0.95
+                else:
+                    response = f"There are {len(documents)} total document(s) available, but no specific policy documents were found."
+                    return response, [], 0.8
+            else:
+                # List all documents
+                if documents:
+                    doc_list = []
+                    for i, doc in enumerate(documents, 1):
+                        doc_name = doc.get('filename', 'Unknown Document')
+                        doc_list.append(f"{i}. {doc_name}")
+                    
+                    response = f"Here are all {len(documents)} documents in the knowledge base:\n\n" + "\n".join(doc_list)
+                    sources = [{"document_id": d.get("id"), "document_name": d.get("filename"), "similarity": 1.0} for d in documents]
+                    return response, sources, 0.95
+                else:
+                    response = "There are no documents available in the knowledge base."
+                    return response, [], 0.9
+        
+        # Check for follow-up references to "them" or "they" after a list/count query
+        if conversation_history:
+            recent_assistant = None
+            for msg in reversed(conversation_history[-3:]):
+                if msg.get('role') == 'assistant':
+                    recent_assistant = msg.get('content', '').lower()
+                    break
+            
+            if recent_assistant and ('policy' in recent_assistant or 'document' in recent_assistant):
+                # Check if current query references "them", "they", "all of them", etc.
+                reference_patterns = [
+                    r'\b(?:list|show|enumerate|what are|name)\s+(?:all|all of)?\s*(?:them|they)',
+                    r'how many\s+(?:are\s+)?(?:they|them)',
+                    r'count\s+(?:them|they)'
+                ]
+                
+                if any(re.search(pattern, message_lower) for pattern in reference_patterns):
+                    # Determine if referring to policies or all documents
+                    if 'policy' in recent_assistant:
+                        policy_docs = [d for d in documents if 'policy' in d.get('filename', '').lower()]
+                        if policy_docs:
+                            doc_list = []
+                            for i, doc in enumerate(policy_docs, 1):
+                                doc_name = doc.get('filename', 'Unknown Document')
+                                doc_list.append(f"{i}. {doc_name}")
+                            response = f"Here are all {len(policy_docs)} IT policy documents:\n\n" + "\n".join(doc_list)
+                            sources = [{"document_id": d.get("id"), "document_name": d.get("filename"), "similarity": 1.0} for d in policy_docs]
+                            return response, sources, 0.95
+                    else:
+                        # List all documents
+                        if documents:
+                            doc_list = []
+                            for i, doc in enumerate(documents, 1):
+                                doc_name = doc.get('filename', 'Unknown Document')
+                                doc_list.append(f"{i}. {doc_name}")
+                            response = f"Here are all {len(documents)} documents:\n\n" + "\n".join(doc_list)
+                            sources = [{"document_id": d.get("id"), "document_name": d.get("filename"), "similarity": 1.0} for d in documents]
+                            return response, sources, 0.95
+        
+        return None
     
     def _fallback_response(self, message: str, organization: Dict, documents: List[Dict]) -> str:
         """Fallback response when retrieval fails"""
