@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Organization, User } from '../types';
+import { storeOrganization, storeUser } from '../utils/storage';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -33,10 +34,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const storedUser = localStorage.getItem('currentUser');
     if (storedOrg && storedUser) {
       try {
-        const org = JSON.parse(storedOrg);
-        const user = JSON.parse(storedUser);
+        const orgData = JSON.parse(storedOrg);
+        const userData = JSON.parse(storedUser);
+        
+        // Reconstruct Organization object with empty arrays for documents and users
+        // since we only store minimal data in localStorage
+        const org: Organization = {
+          ...orgData,
+          documents: [],
+          users: [],
+        };
+        
         setCurrentOrganization(org);
-        setCurrentUser(user);
+        setCurrentUser(userData as User);
         setIsAuthenticated(true);
       } catch (error) {
         console.error('Failed to parse stored organization:', error);
@@ -51,8 +61,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentOrganization(organization);
     setCurrentUser(user);
     setIsAuthenticated(true);
-    localStorage.setItem('currentOrganization', JSON.stringify(organization));
-    localStorage.setItem('currentUser', JSON.stringify(user));
+    
+    // Store only essential fields to avoid quota errors
+    const orgStored = storeOrganization(organization);
+    const userStored = storeUser(user);
+    
+    if (!orgStored || !userStored) {
+      console.warn('Failed to store authentication data in localStorage. Session may not persist after page refresh.');
+    }
+    
     // Only navigate on initial login, not on data refresh
     if (!isAuthenticated) {
       window.location.href = '/chat';

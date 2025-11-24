@@ -11,7 +11,7 @@ import traceback
 class OpenAIService:
     def __init__(self):
         self.client = None
-        self.embedding_model = "text-embedding-3-small"
+        self.embedding_model = "text-embedding-3-large"  # Modern, high-quality embeddings
         self.chat_model = os.getenv("OPENAI_MODEL", "gpt-4o")
         self.max_tokens = int(os.getenv("MAX_TOKENS", "1000"))
         self.temperature = float(os.getenv("TEMPERATURE", "0.7"))
@@ -89,17 +89,56 @@ class OpenAIService:
             print(f"Error finding similar chunks: {e}")
             return []
     
+    def detect_language(self, text: str) -> str:
+        """Detect language using OpenAI (no external library needed)"""
+        if not self.client or len(text.strip()) < 3:
+            return "en"  # Default to English
+        
+        try:
+            # Use a very cheap, fast model for language detection
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",  # Cheaper model for detection
+                messages=[
+                    {"role": "system", "content": "You are a language detector. Respond with ONLY the ISO 639-1 language code (e.g., 'en' for English, 'es' for Spanish, 'fr' for French, 'de' for German, 'rw' for Kinyarwanda, 'sw' for Swahili, 'zu' for Zulu, 'xh' for Xhosa, 'af' for Afrikaans). Support ALL languages including African languages like Kinyarwanda. No explanation, just the 2-letter code."},
+                    {"role": "user", "content": f"What language is this text written in? Respond with only the ISO 639-1 language code:\n\n{text[:100]}"}
+                ],
+                max_tokens=5,
+                temperature=0
+            )
+            detected = response.choices[0].message.content.strip().lower()
+            # Validate it's a reasonable language code (2-letter ISO 639-1)
+            if len(detected) == 2 and detected.isalpha():
+                return detected
+            return "en"
+        except Exception as e:
+            print(f"Language detection error: {e}")
+            return "en"
+
     def generate_response(self, system_prompt: str, user_message: str, context: str = "", is_document_query: bool = True, user_language: str = "en", max_tokens: int = None) -> str:
         """Generate AI response using OpenAI GPT with natural language matching"""
         if not self.client:
             return "I'm currently unable to process your request. Please try again later or contact support if the issue persists."
 
         try:
+            # Auto-detect query type if caller didn't explicitly override
+            auto_type = self.detect_query_type(user_message)
+            if auto_type == "general":
+                is_document_query = False
+            # For "mixed" or "document", keep is_document_query as provided (default True)
+            
             # Use provided max_tokens or default
             tokens_to_use = max_tokens if max_tokens is not None else self.max_tokens
 
-            # Simple instruction to match user's language naturally
-            language_instruction = "\n\nIMPORTANT: Always respond in the same language as the user's message. Match their language naturally. Never mention documents, knowledge bases, or technical implementation details to users."
+            # Simple, strong language instruction - models are good at detecting language from text
+            language_instruction = """
+=== LANGUAGE REQUIREMENT ===
+Always reply in the same language as the user's last message.
+- If the user writes in Kinyarwanda (e.g. "mwiriwe", "amakuru", "mwaramutse"), reply only in Kinyarwanda.
+- If the user writes in French, reply only in French.
+- If the user writes in English, reply only in English.
+- If the user writes in any other language, reply only in that language.
+Do not mix languages in the same answer unless the user clearly asks you to translate.
+"""
 
             # Use the provided system prompt with language enforcement
             final_system_prompt = f"{system_prompt}{language_instruction}"
@@ -113,14 +152,12 @@ class OpenAIService:
 {context}
 
 === CRITICAL INSTRUCTIONS ===
-1. **ONLY use the information provided above** to answer the question
-2. **DO NOT use your general knowledge** or training data - ONLY use what's in the "Available Information" section
-3. **If the answer is not in the provided information**, you MUST say: "I don't have that information in the available documents" or "Based on the information provided, I cannot find details about [specific topic]"
-4. **DO NOT guess, speculate, or make up information** - if it's not in the provided context, you don't know it
-5. **If the information partially answers the question**, provide what you can from the context and acknowledge any gaps
-6. Be helpful and polite, but always be honest about what information you have access to
-7. Never mention "documents", "knowledge base", or technical implementation details to users
-8. If asked about something not in the provided information, politely redirect: "I don't have that specific information available. Is there something else I can help you with based on the information I have access to?"
+1. Use only the information above as your source.
+2. If the information above does not contain the answer, say politely that you do not have that information available.
+3. Do not mention "internal sources", "context", "knowledge base", or "documents" to the user. Just answer or say you don't have the information.
+4. Do not guess, speculate, or make up information - if it's not in the provided context, you don't know it.
+5. If the information partially answers the question, provide what you can from the context and acknowledge any gaps.
+6. Be helpful and polite, but always be honest about what information you have access to.
 
 Remember: Your ONLY source of information is what's provided above. If it's not there, you don't know it."""
                     final_system_prompt += context_addition
@@ -128,16 +165,16 @@ Remember: Your ONLY source of information is what's provided above. If it's not 
                     # No context found - explicitly tell model to say "I don't know"
                     no_context_addition = f"""
 === NO INFORMATION FOUND ===
-No relevant information was found in the available documents for this query.
+No relevant information was found for this query.
 
 === CRITICAL INSTRUCTIONS ===
-1. You MUST respond that you don't have that information available
-2. DO NOT use your general knowledge to answer
-3. DO NOT guess or make up information
-4. Say something like: "I don't have that specific information in the available documents. Could you rephrase your question or ask about something else?"
-5. Be polite and helpful, but honest about the lack of information
+1. You MUST respond that you don't have that information available.
+2. DO NOT use your general knowledge to answer.
+3. DO NOT guess or make up information.
+4. Be polite and helpful, but honest about the lack of information.
+5. Do not mention "documents", "sources", or "knowledge base" - just say you don't have the information.
 
-Remember: If information is not in the documents, you don't know it. Never use general knowledge."""
+Remember: If information is not available, you don't know it. Never use general knowledge."""
                     final_system_prompt += no_context_addition
             else:
                 # General query (not document-specific)
@@ -176,15 +213,54 @@ Remember: If information is not in the documents, you don't know it. Never use g
             return
 
         try:
-            # Build final prompt same as non-streaming
-            language_instruction = "\n\nIMPORTANT: Always respond in the same language as the user's message. Match their language naturally."
+            # Auto-detect query type if caller didn't explicitly override
+            auto_type = self.detect_query_type(user_message)
+            if auto_type == "general":
+                is_document_query = False
+            
+            # Simple, strong language instruction - same as non-streaming
+            language_instruction = """
+=== LANGUAGE REQUIREMENT ===
+Always reply in the same language as the user's last message.
+- If the user writes in Kinyarwanda (e.g. "mwiriwe", "amakuru", "mwaramutse"), reply only in Kinyarwanda.
+- If the user writes in French, reply only in French.
+- If the user writes in English, reply only in English.
+- If the user writes in any other language, reply only in that language.
+Do not mix languages in the same answer unless the user clearly asks you to translate.
+"""
             final_system_prompt = f"{system_prompt}{language_instruction}"
 
-            if is_document_query and context:
-                context_addition = f"\n\nAvailable Information:\n{context}\n\nInstructions:\n- Use the provided information to give comprehensive answers\n- Be helpful and polite in your responses"
-                final_system_prompt += context_addition
+            if is_document_query:
+                if context and context.strip():
+                    context_addition = f"""
+=== AVAILABLE INFORMATION ===
+{context}
+
+=== CRITICAL INSTRUCTIONS ===
+1. Use only the information above as your source.
+2. If the information above does not contain the answer, say politely that you do not have that information available.
+3. Do not mention "internal sources", "context", "knowledge base", or "documents" to the user. Just answer or say you don't have the information.
+4. Do not guess, speculate, or make up information - if it's not in the provided context, you don't know it.
+5. Be helpful and polite, but always be honest about what information you have access to.
+"""
+                    final_system_prompt += context_addition
+                else:
+                    no_context_addition = f"""
+=== NO INFORMATION FOUND ===
+No relevant information was found for this query.
+
+=== CRITICAL INSTRUCTIONS ===
+1. You MUST respond that you don't have that information available.
+2. DO NOT use your general knowledge to answer.
+3. DO NOT guess or make up information.
+4. Be polite and helpful, but honest about the lack of information.
+5. Do not mention "documents", "sources", or "knowledge base" - just say you don't have the information.
+"""
+                    final_system_prompt += no_context_addition
             elif context:
                 final_system_prompt += f"\n\nAdditional context: {context}"
+            else:
+                final_system_prompt += "\n\nProvide helpful responses based on your knowledge."
 
             # Create streaming completion
             stream = self.client.chat.completions.create(
@@ -213,12 +289,17 @@ Remember: If information is not in the documents, you don't know it. Never use g
         document_keywords = [
             'document', 'file', 'pdf', 'uploaded', 'content', 'text',
             'according to', 'based on', 'in the document', 'what does it say',
-            'find', 'search', 'look for', 'extract', 'summarize'
+            'find', 'search', 'look for', 'extract', 'summarize',
+            'policy', 'policies', 'law', 'laws', 'regulation', 'regulations',
+            'section', 'article', 'clause', 'rule', 'rules'
         ]
         
         general_keywords = [
             'hello', 'hi', 'help', 'how are you', 'what can you do',
-            'explain', 'define', 'what is', 'how to', 'why', 'when'
+            'explain', 'define', 'what is', 'how to', 'why', 'when',
+            'mwiriwe', 'mwaramutse', 'amakuru', 'bite',  # Kinyarwanda greetings
+            'bonjour', 'salut', 'ça va',  # French greetings
+            'hola', 'buenos días'  # Spanish greetings
         ]
         
         message_lower = message.lower()

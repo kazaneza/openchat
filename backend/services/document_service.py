@@ -34,83 +34,19 @@ class DocumentService:
         except Exception as e:
             raise Exception(f"Failed to process PDF: {str(e)}")
     
-    def chunk_text(self, text: str, max_tokens: int = 500, overlap: int = 50, page_texts: List[Dict] = None) -> List[Dict]:
-        """Split text into overlapping chunks for better context preservation with page tracking"""
+    def chunk_text(self, text: str, max_tokens: int = 1000, overlap: int = 200, page_texts: List[Dict] = None) -> List[Dict]:
+        """Split text into overlapping chunks using modern chunking service"""
         try:
-            encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4 encoding
+            from .chunking_service import ChunkingService
             
-            # Split by paragraphs first
-            paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-            chunks = []
-            current_chunk = ""
+            # Use modern chunking service
+            chunking_service = ChunkingService(
+                chunk_size=max_tokens,
+                chunk_overlap=overlap
+            )
             
-            for paragraph in paragraphs:
-                # Check if adding this paragraph would exceed the limit
-                test_chunk = current_chunk + "\n\n" + paragraph if current_chunk else paragraph
-                token_count = len(encoding.encode(test_chunk))
-                
-                if token_count <= max_tokens:
-                    current_chunk = test_chunk
-                else:
-                    # Save current chunk if it has content
-                    if current_chunk:
-                        chunks.append(current_chunk.strip())
-                    
-                    # If single paragraph is too long, split it further
-                    if len(encoding.encode(paragraph)) > max_tokens:
-                        # Split by sentences
-                        sentences = re.split(r'[.!?]+', paragraph)
-                        temp_chunk = ""
-                        
-                        for sentence in sentences:
-                            if not sentence.strip():
-                                continue
-                            test_sentence = temp_chunk + sentence.strip() + "."
-                            if len(encoding.encode(test_sentence)) <= max_tokens:
-                                temp_chunk = test_sentence
-                            else:
-                                if temp_chunk:
-                                    chunks.append(temp_chunk.strip())
-                                temp_chunk = sentence.strip() + "."
-                        
-                        if temp_chunk:
-                            chunks.append(temp_chunk.strip())
-                        current_chunk = ""
-                    else:
-                        current_chunk = paragraph
-            
-            # Add the last chunk
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-
-            # Create overlapping chunks for better context
-            if len(chunks) > 1:
-                overlapping_chunks = []
-                for i, chunk in enumerate(chunks):
-                    overlapping_chunks.append(chunk)
-
-                    # Add overlap with next chunk
-                    if i < len(chunks) - 1:
-                        overlap_text = self._get_overlap_text(chunk, chunks[i + 1], overlap)
-                        if overlap_text:
-                            overlapping_chunks.append(overlap_text)
-
-                chunks = [chunk for chunk in overlapping_chunks if chunk.strip()]
-            else:
-                chunks = [chunk for chunk in chunks if chunk.strip()]
-
-            # Add page numbers to chunks
-            chunks_with_metadata = []
-            for chunk_text in chunks:
-                page_nums = self._find_pages_for_chunk(chunk_text, text, page_texts)
-                chunks_with_metadata.append({
-                    "text": chunk_text,
-                    "pages": page_nums,
-                    "char_count": len(chunk_text),
-                    "token_count": len(encoding.encode(chunk_text))
-                })
-
-            return chunks_with_metadata
+            chunks = chunking_service.chunk_text(text, page_texts)
+            return chunks
 
         except Exception as e:
             print(f"Error in chunking: {e}")
@@ -230,8 +166,9 @@ class DocumentService:
             embeddings = doc.get("chunk_embeddings", [])
             
             for i, chunk in enumerate(chunks):
+                chunk_text = chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)
                 chunk_data = {
-                    "text": chunk,
+                    "text": chunk_text,
                     "document_id": doc["id"],
                     "document_name": doc["filename"],
                     "chunk_index": i,

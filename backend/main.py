@@ -14,7 +14,7 @@ import asyncio
 from services.openai_service import OpenAIService
 from services.document_service import DocumentService
 from services.embedding_service import EmbeddingService
-from services.query_service import QueryService
+from services.chatbot_service import ChatbotService
 from services.vector_service import VectorService
 from services.prompt_service import PromptService
 from services.feedback_service import FeedbackService
@@ -32,8 +32,13 @@ openai_service = OpenAIService()
 document_service = DocumentService()
 vector_service = VectorService()
 prompt_service = PromptService()
-embedding_service = EmbeddingService(openai_service, vector_service)
-query_service = QueryService(openai_service, document_service, embedding_service, vector_service, prompt_service)
+embedding_service = EmbeddingService(openai_service)
+chatbot_service = ChatbotService(
+    openai_service=openai_service,
+    embedding_service=embedding_service,
+    vector_service=vector_service,
+    prompt_service=prompt_service
+)
 feedback_service = FeedbackService()
 response_quality_service = ResponseQualityService()
 
@@ -111,8 +116,8 @@ async def admin_delete_organization(org_id: str):
         # Delete embeddings
         embedding_service.delete_document_embeddings(doc["id"])
     
-    # Delete all organization embeddings from ChromaDB
-    embedding_service.delete_organization_embeddings(org_id)
+    # Delete all organization data from ChromaDB
+    vector_service.delete_organization_data(org_id)
     
     # Delete users belonging to this organization
     users = user_model.load_all()
@@ -282,7 +287,25 @@ async def upload_documents(org_id: str, files: List[UploadFile] = File(...), use
             
             # Generate embeddings for the document
             try:
-                document = embedding_service.generate_embeddings_for_document(document, org_id)
+                # Generate embeddings for all chunks
+                document = embedding_service.generate_document_embeddings(document, org_id)
+                
+                # Add chunks to vector database
+                chunks = document.get("chunks", [])
+                embeddings = document.get("chunk_embeddings", [])
+                
+                if chunks and embeddings:
+                    # Add document name to chunks for metadata
+                    for chunk in chunks:
+                        if isinstance(chunk, dict):
+                            chunk["document_name"] = document.get("filename", "")
+                    
+                    vector_service.add_document_chunks(
+                        organization_id=org_id,
+                        document_id=document["id"],
+                        chunks=chunks,
+                        embeddings=embeddings
+                    )
             except Exception as e:
                 error_msg = f"Failed to generate embeddings for '{file.filename}': {str(e)}"
                 print(f"Embedding error: {error_msg}")
@@ -341,11 +364,11 @@ async def chat_with_documents(org_id: str, message: str = Form(...), user_id: st
         else:
             print("WARNING: Organization has no documents in the documents array!")
         
-        # Process query using the new query service
+        # Process query using the new chatbot service
         user_context = {"user_id": user_id}
         if conversation_id:
             user_context["conversation_id"] = conversation_id
-        ai_response = query_service.process_query(message, organization, user_context, conversation_id)
+        ai_response = chatbot_service.process_query(message, organization, user_context, conversation_id)
         
         # Update organization stats
         organization_model.increment_chat_count(org_id)
@@ -367,8 +390,8 @@ async def public_chat_endpoint(org_id: str, message: str = Form(...)):
         if not organization:
             raise HTTPException(status_code=404, detail="Organization not found")
         
-        # Process query using the new query service
-        ai_response = query_service.process_query(message, organization)
+        # Process query using the new chatbot service
+        ai_response = chatbot_service.process_query(message, organization)
         
         # Update organization stats
         organization_model.increment_chat_count(org_id)
@@ -416,8 +439,8 @@ async def delete_document(org_id: str, doc_id: str, user_id: str = Form(...)):
     # Delete the physical file
     document_service.delete_document_file(doc_to_delete["file_path"])
     
-    # Delete embeddings from ChromaDB and cache
-    embedding_service.delete_document_embeddings(doc_id)
+    # Delete embeddings from ChromaDB
+    vector_service.delete_document_chunks(org_id, doc_id)
     
     print(f"Document {doc_to_delete['filename']} deleted successfully")
 
