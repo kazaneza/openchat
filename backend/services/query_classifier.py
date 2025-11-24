@@ -7,13 +7,19 @@ import re
 
 class QueryClassifier:
     def __init__(self):
-        # Greeting patterns - always general
+        # Greeting patterns - always general (including Kinyarwanda and other languages)
         self.greeting_patterns = [
             r'^(hi|hello|hey|greetings|good morning|good afternoon|good evening)',
             r'^(hi|hello|hey|greetings|good morning|good afternoon|good evening)\s+',
             r'^how are you',
             r'^what can you do',
-            r'^who are you'
+            r'^who are you',
+            # Kinyarwanda greetings
+            r'^(mwiriwe|mwaramutse|amakuru|bite)',
+            # French greetings
+            r'^(bonjour|salut|bonsoir|ça va)',
+            # Spanish greetings
+            r'^(hola|buenos días|buenas tardes)'
         ]
         
         # General question patterns (not document-specific)
@@ -45,7 +51,13 @@ class QueryClassifier:
             'in the document', 'from the file', 'according to', 'based on the document'
         ]
     
-    def classify(self, query: str, has_documents: bool = True, conversation_history: List[Dict] = None) -> Dict:
+    def classify(
+        self,
+        query: str,
+        has_documents: bool = True,
+        conversation_history: List[Dict] = None,
+        language: str = "en"
+    ) -> Dict:
         """
         Classify query as general or document-specific
         Returns: {
@@ -57,7 +69,7 @@ class QueryClassifier:
         query_lower = query.lower().strip()
         conversation_history = conversation_history or []
         
-        # Check for greetings first (always general)
+        # 1) Greetings: always general
         if self._is_greeting(query_lower):
             return {
                 'type': 'general',
@@ -65,7 +77,7 @@ class QueryClassifier:
                 'reason': 'Greeting detected'
             }
         
-        # If no documents available, must be general
+        # 2) If no documents at all, it's general
         if not has_documents:
             return {
                 'type': 'general',
@@ -73,27 +85,45 @@ class QueryClassifier:
                 'reason': 'No documents available'
             }
         
-        # Check for strong document indicators
+        # 3) LANGUAGE-BASED SHORTCUT
+        # If language is not English, default to GENERAL unless we clearly see document indicators.
+        # This avoids sending Kinyarwanda/French questions straight to document mode.
+        non_english = language and language != "en"
+        
+        # Check for strong doc indicators & patterns (English-based)
         has_strong_doc_indicator = any(
             indicator in query_lower for indicator in self.strong_document_indicators
         )
         
-        # Count document pattern matches
         doc_score = sum(
             1 for pattern in self.document_patterns
             if re.search(pattern, query_lower, re.IGNORECASE)
         )
         
-        # Count general pattern matches
         general_score = sum(
             1 for pattern in self.general_patterns
             if re.search(pattern, query_lower, re.IGNORECASE)
         )
         
-        # Check for follow-up questions that might reference documents
         is_follow_up = self._is_follow_up(query_lower, conversation_history)
         
-        # Decision logic
+        # 3.a Non-English queries
+        if non_english:
+            # Only treat as document if the user very explicitly references docs (rare in Kinyarwanda)
+            if has_strong_doc_indicator or doc_score >= 2:
+                return {
+                    'type': 'document',
+                    'confidence': 0.7,
+                    'reason': f'Non-English ({language}) but strong document indicators found'
+                }
+            # Otherwise default to general
+            return {
+                'type': 'general',
+                'confidence': 0.85,
+                'reason': f'Non-English query ({language}), defaulting to general'
+            }
+        
+        # 4) Normal English logic below
         if has_strong_doc_indicator or doc_score >= 2:
             return {
                 'type': 'document',
@@ -119,7 +149,7 @@ class QueryClassifier:
                 'reason': 'General question patterns detected'
             }
         else:
-            # Default: try document first if documents exist, but with lower confidence
+            # DEFAULT for English: your old behavior
             return {
                 'type': 'document',
                 'confidence': 0.5,

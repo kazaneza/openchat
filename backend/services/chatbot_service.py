@@ -45,6 +45,7 @@ class ChatbotService:
             org_id = organization.get("id")
             user_id = user_context.get("user_id") if user_context else None
             documents = organization.get("documents", [])
+            has_docs = len(documents) > 0
             
             # Get conversation history
             conversation_history = []
@@ -52,11 +53,16 @@ class ChatbotService:
                 messages = self.conversation_model.get_messages(conversation_id, limit=10)
                 conversation_history = messages
             
-            # Classify query
+            # 1) Detect language first
+            language = self.openai_service.detect_language(message)
+            print(f"Detected language: {language}")
+            
+            # 2) Classify query using language
             classification = self.query_classifier.classify(
                 query=message,
-                has_documents=len(documents) > 0,
-                conversation_history=conversation_history
+                has_documents=has_docs,
+                conversation_history=conversation_history,
+                language=language
             )
             
             # Create or get conversation
@@ -76,38 +82,109 @@ class ChatbotService:
                     conversation_id=conversation_id,
                     role="user",
                     content=message,
-                    metadata={"classification": classification}
+                    metadata={"classification": classification, "language": language}
                 )
             
-            # Route to appropriate handler
-            if classification['type'] == 'general' or not documents:
-                response = self._handle_general_query(
-                    message=message,
-                    organization=organization,
-                    conversation_history=conversation_history
-                )
-                sources = []
-                confidence = 0.8
-            else:
-                # Document-specific query
-                response, sources, confidence = self._handle_document_query(
-                    message=message,
-                    organization=organization,
-                    documents=documents,
-                    conversation_history=conversation_history
-                )
+            # 3) Decide if we try documents
+            similar_chunks = []
+            context = ""
+            sources = []
+            confidence = 0.8
             
-            # Generate follow-up question to help users go deeper
-            follow_up_question = self._generate_follow_up_question(
-                response=response,
-                query_type=classification['type'],
-                has_sources=len(sources) > 0,
-                message=message
+            # Check for metadata queries first (they return early with a direct answer)
+            if classification["type"] == "document" and has_docs:
+                metadata_response = self._handle_metadata_query(message, documents, conversation_history)
+                if metadata_response:
+                    # Metadata query returns a direct answer - use it
+                    response, sources, confidence = metadata_response
+                    
+                    # Add to conversation
+                    if conversation_id:
+                        self.conversation_model.add_message(
+                            conversation_id=conversation_id,
+                            role="assistant",
+                            content=response,
+                            metadata={
+                                "query_type": classification['type'],
+                                "sources": sources,
+                                "confidence": confidence,
+                                "language": language
+                            }
+                        )
+                    
+                    return {
+                        "response": response,
+                        "conversation_id": conversation_id,
+                        "query_type": classification['type'],
+                        "sources": sources,
+                        "confidence_score": confidence,
+                        "classification": classification
+                    }
+                
+                # Try to find relevant document chunks
+                similar_chunks = self._search_document_chunks(message, org_id, documents)
+                
+                if similar_chunks:
+                    # Build context from chunks
+                    context = self._prepare_context(similar_chunks)
+                    sources = self._extract_sources(similar_chunks)
+                    confidence = self._calculate_confidence(similar_chunks)
+                else:
+                    # No doc match → fall back to general
+                    classification["type"] = "general"
+                    classification["reason"] = "Document search found no results, falling back to general"
+                    print(f"No document results found, falling back to general mode")
+            
+            is_document_query = (classification["type"] == "document" and context)
+            
+            # 4) Ask OpenAI (always)
+            base_prompt = organization.get("prompt") or self.prompt_service.get_default_prompt(
+                "document_assistant" if is_document_query else "customer_support"
+            )
+            system_prompt = self.prompt_service.create_contextual_prompt(
+                base_prompt=base_prompt,
+                organization_name=organization["name"],
+                document_count=len(documents),
+                context_type="document" if is_document_query else "general"
             )
             
-            # Append follow-up question to response
-            if follow_up_question:
-                response = f"{response}\n\n{follow_up_question}"
+            # Add conversation context
+            if conversation_history:
+                context_parts = []
+                for msg in conversation_history[-3:]:  # Last 3 messages
+                    role = msg.get('role', '')
+                    content = msg.get('content', '')
+                    if role == 'user':
+                        context_parts.append(f"User: {content}")
+                    elif role == 'assistant':
+                        context_parts.append(f"Assistant: {content[:200]}...")
+                
+                if context_parts:
+                    system_prompt += f"\n\nPrevious conversation:\n" + "\n".join(context_parts)
+            
+            response = self.openai_service.generate_response(
+                system_prompt=system_prompt,
+                user_message=message,
+                context=context,
+                is_document_query=is_document_query,
+                user_language=language,
+                max_tokens=800 if is_document_query else 500
+            )
+            
+            # Generate follow-up question to help users go deeper (only for substantial queries)
+            # Skip follow-ups for greetings and very short messages
+            should_add_followup = len(message.strip()) > 10 and not self._is_greeting(message)
+            if should_add_followup:
+                follow_up_question = self._generate_follow_up_question(
+                    response=response,
+                    query_type=classification['type'],
+                    has_sources=len(sources) > 0,
+                    message=message
+                )
+                
+                # Append follow-up question to response
+                if follow_up_question:
+                    response = f"{response}\n\n{follow_up_question}"
             
             # Add assistant response to conversation
             if conversation_id:
@@ -118,7 +195,8 @@ class ChatbotService:
                     metadata={
                         "query_type": classification['type'],
                         "sources": sources,
-                        "confidence": confidence
+                        "confidence": confidence,
+                        "language": language
                     }
                 )
             
@@ -141,6 +219,64 @@ class ChatbotService:
                 "sources": [],
                 "confidence_score": 0.0
             }
+    
+    def _search_document_chunks(
+        self,
+        message: str,
+        org_id: str,
+        documents: List[Dict]
+    ) -> List[Dict]:
+        """Search for relevant document chunks using RAG"""
+        try:
+            # Generate query embedding
+            query_embedding = self.embedding_service.generate_single_embedding(message)
+            if not query_embedding:
+                return []
+            
+            # Search vector database
+            semantic_results = self.vector_service.search_similar_chunks(
+                organization_id=org_id,
+                query_embedding=query_embedding,
+                top_k=10,
+                min_similarity=0.3
+            )
+            
+            # Prepare all chunks for hybrid search
+            all_chunks = []
+            for doc in documents:
+                chunks = doc.get("chunks", [])
+                for i, chunk in enumerate(chunks):
+                    chunk_text = chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)
+                    all_chunks.append({
+                        'chunk_id': f"{doc.get('id', '')}_{i}",
+                        'text': chunk_text,
+                        'document_id': doc.get('id', ''),
+                        'document_name': doc.get('filename', ''),
+                        'chunk_index': i,
+                        'pages': chunk.get('pages', []) if isinstance(chunk, dict) else []
+                    })
+            
+            # Perform hybrid search
+            hybrid_results = self.retrieval_service.hybrid_search(
+                semantic_results=semantic_results,
+                query=message,
+                all_chunks=all_chunks
+            )
+            
+            # Rerank results
+            reranked_results = self.retrieval_service.rerank_results(hybrid_results, message)
+            
+            # Filter by threshold
+            filtered_results = self.retrieval_service.filter_by_threshold(reranked_results, threshold=0.3)
+            
+            # Diversify results
+            final_results = self.retrieval_service.diversify_results(filtered_results, max_per_document=3)
+            
+            return final_results
+        except Exception as e:
+            print(f"Error searching document chunks: {e}")
+            traceback.print_exc()
+            return []
     
     def _handle_general_query(
         self,
@@ -209,7 +345,18 @@ class ChatbotService:
             # Generate query embedding
             query_embedding = self.embedding_service.generate_single_embedding(message)
             if not query_embedding:
-                # Fallback to keyword search
+                # Check if this is actually a general query (greeting, etc.) that was misclassified
+                query_type = self.openai_service.detect_query_type(message)
+                if query_type == "general" or self._is_greeting(message):
+                    # This is actually a general query, handle it as such
+                    general_response = self._handle_general_query(
+                        message=message,
+                        organization=organization,
+                        conversation_history=conversation_history
+                    )
+                    return general_response, [], 0.8
+                
+                # It's a real document query but embedding failed - return fallback
                 return self._fallback_response(message, organization, documents), [], 0.3
             
             # Search vector database
@@ -252,6 +399,19 @@ class ChatbotService:
             final_results = self.retrieval_service.diversify_results(filtered_results, max_per_document=3)
             
             if not final_results:
+                # Check if this is actually a general query (greeting, etc.) that was misclassified
+                # If so, route to general handler instead of returning fallback
+                query_type = self.openai_service.detect_query_type(message)
+                if query_type == "general" or self._is_greeting(message):
+                    # This is actually a general query, handle it as such
+                    general_response = self._handle_general_query(
+                        message=message,
+                        organization=organization,
+                        conversation_history=conversation_history
+                    )
+                    return general_response, [], 0.8
+                
+                # It's a real document query with no results - return fallback
                 return self._fallback_response(message, organization, documents), [], 0.3
             
             # Extract sources
@@ -519,6 +679,32 @@ class ChatbotService:
         ]
         return any(re.search(pattern, message_lower) for pattern in metadata_patterns)
     
+    def _is_greeting(self, message: str) -> bool:
+        """Check if message is a greeting or very short interaction"""
+        message_lower = message.lower().strip()
+        
+        # Common greetings in multiple languages
+        greetings = [
+            'hello', 'hi', 'hey', 'hiya', 'howdy',
+            'mwiriwe', 'mwaramutse', 'amakuru', 'bite',  # Kinyarwanda
+            'bonjour', 'salut', 'bonsoir', 'ça va',  # French
+            'hola', 'buenos días', 'buenas tardes',  # Spanish
+            'guten tag', 'hallo',  # German
+            'ciao', 'salve'  # Italian
+        ]
+        
+        # Check if message is just a greeting (with optional punctuation)
+        message_clean = message_lower.rstrip('?!.')
+        if message_clean in greetings:
+            return True
+        
+        # Check if message starts with greeting and is very short
+        words = message_clean.split()
+        if len(words) <= 3 and any(greeting in message_clean for greeting in greetings):
+            return True
+        
+        return False
+    
     def _generate_follow_up_question(
         self,
         response: str,
@@ -528,13 +714,14 @@ class ChatbotService:
     ) -> str:
         """
         Generate a natural follow-up question to help users go deeper
+        Only called for substantial queries (not greetings)
         """
         message_lower = message.lower()
         response_lower = response.lower()
         
         # Determine context from the response
-        is_count_response = 'there are' in response_lower and ('document' in response_lower or 'policy' in response_lower)
-        is_list_response = 'here are' in response_lower or 'all' in response_lower and 'document' in response_lower
+        is_count_response = 'there are' in response_lower and ('policy' in response_lower or len(response.split()) < 30)
+        is_list_response = 'here are' in response_lower or ('all' in response_lower and len(response.split()) < 30)
         is_detailed_response = len(response.split()) > 50
         is_short_response = len(response.split()) < 20
         
@@ -544,9 +731,9 @@ class ChatbotService:
         if is_count_response or is_list_response:
             # For count/list queries, offer to explain or get details
             follow_ups.extend([
-                "Would you like me to explain what any of these documents contain?",
-                "Would you like more details about any specific document?",
-                "Would you like a summary of what these documents cover?"
+                "Would you like me to explain what any of these contain?",
+                "Would you like more details about any specific one?",
+                "Would you like a summary of what these cover?"
             ])
         elif is_detailed_response:
             # For detailed responses, offer summary or breakdown
@@ -574,7 +761,7 @@ class ChatbotService:
         if query_type == 'document' and has_sources:
             follow_ups.extend([
                 "Would you like me to search for more information on this topic?",
-                "Would you like details from other related documents?"
+                "Would you like additional details on this?"
             ])
         elif query_type == 'general':
             follow_ups.extend([
@@ -588,9 +775,10 @@ class ChatbotService:
         return selected
     
     def _fallback_response(self, message: str, organization: Dict, documents: List[Dict]) -> str:
-        """Fallback response when retrieval fails"""
+        """Fallback response when retrieval fails for document queries"""
         if not documents:
-            return f"I don't have access to any documents for {organization.get('name', 'this organization')}. How can I help you?"
+            return f"I don't have access to any information for {organization.get('name', 'this organization')}. How can I help you?"
         
-        return f"I couldn't find specific information about that in the available documents. There are {len(documents)} document(s) available. Could you rephrase your question or ask about something else?"
+        # Don't mention "documents" - just say we don't have the information
+        return f"I couldn't find specific information about that. Could you rephrase your question or ask about something else?"
 
