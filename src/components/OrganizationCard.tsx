@@ -1,6 +1,7 @@
 import React from 'react';
 import { Organization } from '../types';
 import { Building2, FileText, Calendar, Trash2, Copy, ExternalLink } from 'lucide-react';
+import { getChatEndpointUrl } from '../utils/apiConfig';
 
 interface OrganizationCardProps {
   organization: Organization;
@@ -64,7 +65,7 @@ const OrganizationCard: React.FC<OrganizationCardProps> = ({
           </button>
         </div>
         <code className="text-xs text-gray-600 dark:text-gray-400 break-all">
-          POST http://localhost:8000/chat/{organization.id}
+          POST {getChatEndpointUrl(organization.id)}
         </code>
       </div>
 

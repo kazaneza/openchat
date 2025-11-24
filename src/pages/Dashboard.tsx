@@ -3,6 +3,7 @@ import { Plus, Check } from 'lucide-react';
 import { Organization } from '../types';
 import { organizationApi } from '../services/api';
 import OrganizationCard from '../components/OrganizationCard';
+import { getChatEndpointUrl } from '../utils/apiConfig';
 
 const Dashboard: React.FC = () => {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -60,7 +61,7 @@ const Dashboard: React.FC = () => {
   };
 
   const handleCopyEndpoint = async (orgId: string) => {
-    const endpoint = `http://localhost:8000/chat/${orgId}`;
+    const endpoint = getChatEndpointUrl(orgId);
     try {
       await navigator.clipboard.writeText(endpoint);
       setCopySuccess(true);
@@ -83,7 +84,7 @@ const Dashboard: React.FC = () => {
 
     setTestLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/chat/${selectedOrg.id}`, {
+      const response = await fetch(getChatEndpointUrl(selectedOrg.id), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -174,7 +175,7 @@ const Dashboard: React.FC = () => {
             <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
               <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Endpoint URL:</h3>
               <code className="text-sm text-gray-600 dark:text-gray-300 break-all">
-                POST http://localhost:8000/chat/{selectedOrg.id}
+                POST {getChatEndpointUrl(selectedOrg.id)}
               </code>
             </div>
 

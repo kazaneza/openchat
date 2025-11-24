@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MessageSquare, Users, Facebook, Slack, MessageCircle, Instagram, Twitter, Plus, ExternalLink, Copy, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { getChatEndpointUrl } from '../utils/apiConfig';
 
 interface Integrator {
   id: string;
@@ -74,7 +75,7 @@ const Integrators: React.FC = () => {
   const handleCopyEndpoint = async () => {
     if (!currentOrganization) return;
     
-    const endpoint = `http://localhost:8000/chat/${currentOrganization.id}`;
+    const endpoint = getChatEndpointUrl(currentOrganization.id);
     try {
       await navigator.clipboard.writeText(endpoint);
       setCopySuccess(true);
@@ -188,7 +189,7 @@ const Integrators: React.FC = () => {
                       </div>
                       <div className="flex items-center space-x-2">
                         <code className="flex-1 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-3 rounded-lg border">
-                          http://localhost:8000/chat/{currentOrganization?.id}
+                          {currentOrganization ? getChatEndpointUrl(currentOrganization.id) : ''}
                         </code>
                         <button
                           onClick={handleCopyEndpoint}
