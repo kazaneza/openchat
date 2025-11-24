@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Settings, Copy, Check, Save, Key, MessageSquare, Lightbulb, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { organizationApi } from '../services/api';
+import { getChatEndpointUrl } from '../utils/apiConfig';
 
 const OrganizationSettings: React.FC = () => {
   const { currentOrganization } = useAuth();
@@ -81,7 +82,7 @@ Capabilities:
   const handleCopyEndpoint = async () => {
     if (!currentOrganization) return;
     
-    const endpoint = `http://localhost:8000/chat/${currentOrganization.id}`;
+    const endpoint = getChatEndpointUrl(currentOrganization.id);
     try {
       await navigator.clipboard.writeText(endpoint);
       setCopySuccess(true);
@@ -156,7 +157,7 @@ Capabilities:
         <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-4">
           <div className="flex items-center justify-between">
             <code className="text-sm text-gray-700 dark:text-gray-300 break-all">
-              POST http://localhost:8000/chat/{currentOrganization.id}
+              POST {getChatEndpointUrl(currentOrganization.id)}
             </code>
             <button
               onClick={handleCopyEndpoint}
@@ -170,7 +171,7 @@ Capabilities:
         
         <div className="text-sm text-gray-600 dark:text-gray-400">
           <p className="mb-2"><strong>Usage:</strong> Send POST requests with form data containing a "message" field.</p>
-          <p><strong>Example:</strong> curl -X POST -d "message=Hello" http://localhost:8000/chat/{currentOrganization.id}</p>
+          <p><strong>Example:</strong> curl -X POST -d "message=Hello" {getChatEndpointUrl(currentOrganization.id)}</p>
         </div>
       </div>
 
